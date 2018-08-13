@@ -14,11 +14,13 @@
 
 
 @import Foundation;
-#import "lobject.h"
-#import "lapi.h"
+//#import "lobject.h"
+#import "lj_obj.h"
+//#import "lapi.h"
 #import "lauxlib.h"
 #import "lualib.h"
 #import "lua.h"
+#import "luajit.h"
 #import <assert.h>
 
 // Defines for Lua stack guard macros
