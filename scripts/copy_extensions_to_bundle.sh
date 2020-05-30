@@ -20,6 +20,7 @@ export HS_MODULES="application \
     dockicon \
     eventtap \
     fs \
+    gamepad \
     hash \
     hid \
     hints \
