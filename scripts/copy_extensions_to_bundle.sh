@@ -53,6 +53,7 @@ export HS_MODULES="application \
     speech \
     spotlight \
     streamdeck \
+    speededitor \
     styledtext \
     task \
     timer \
