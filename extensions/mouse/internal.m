@@ -114,7 +114,7 @@ static void enum_callback(void *ctx, IOReturn res, void *sender, IOHIDDeviceRef 
 }
 
 -(NSDictionary *)getIOHIDParamtersFromService:(io_service_t)service {
-    return (__bridge NSDictionary *)IORegistryEntryCreateCFProperty(service, CFSTR(kIOHIDParametersKey), kCFAllocatorDefault, kNilOptions);
+    return CFBridgingRelease(IORegistryEntryCreateCFProperty(service, CFSTR(kIOHIDParametersKey), kCFAllocatorDefault, kNilOptions));
 }
 
 -(NSDictionary *)getIOHIDParameters {
@@ -279,7 +279,7 @@ static const luaL_Reg mouseLib[] = {
 
 int luaopen_hs_mouse_internal(lua_State* L) {
     LuaSkin *skin = [LuaSkin sharedWithState:L];
-    [skin registerLibrary:mouseLib metaFunctions:nil];
+    [skin registerLibrary:"hs.mouse" functions:mouseLib metaFunctions:nil];
 
     return 1;
 }

@@ -4,7 +4,7 @@
 // establish a unique context for identifying our observers
 //static const char * const USERDATA_TAG = "hs.settings" ;
 static void *myKVOContext = &myKVOContext ; // See http://nshipster.com/key-value-observing/
-static int refTable = LUA_NOREF ;
+static LSRefTable refTable = LUA_NOREF ;
 
 @interface HSUserDefaultKVOWatcher : NSObject ;
 @property NSMutableDictionary *watchedKeys ;
@@ -27,16 +27,18 @@ static int refTable = LUA_NOREF ;
     
 //     [LuaSkin logWarn:[NSString stringWithFormat:@"in observeValueForKeyPath for %@ with %@", keyPath, change]] ;
     if (context == myKVOContext && _watchedKeys && _watchedKeys[keyPath]) {
-        NSMutableDictionary *fnCallbacks = _watchedKeys[keyPath] ;
-//         [LuaSkin logWarn:[NSString stringWithFormat:@"in callback for %@ with %@", keyPath, fnCallbacks]] ;
-        LuaSkin   *skin = [LuaSkin sharedWithState:NULL] ;
-        _lua_stackguard_entry(skin.L);
-        [fnCallbacks enumerateKeysAndObjectsUsingBlock:^(NSString *watcherID, NSNumber *refN, __unused BOOL *stop) {
-            [skin pushLuaRef:refTable ref:refN.intValue] ;
-            [skin pushNSObject:keyPath] ;
-            [skin protectedCallAndError:[NSString stringWithFormat:@"hs.settings:watcher %@ callback", watcherID] nargs:1 nresults:0];
-        }] ;
-        _lua_stackguard_exit(skin.L);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            NSMutableDictionary *fnCallbacks = self->_watchedKeys[keyPath] ;
+            //         [LuaSkin logWarn:[NSString stringWithFormat:@"in callback for %@ with %@", keyPath, fnCallbacks]] ;
+            LuaSkin   *skin = [LuaSkin sharedWithState:NULL] ;
+            _lua_stackguard_entry(skin.L);
+            [fnCallbacks enumerateKeysAndObjectsUsingBlock:^(NSString *watcherID, NSNumber *refN, __unused BOOL *stop) {
+                [skin pushLuaRef:refTable ref:refN.intValue] ;
+                [skin pushNSObject:keyPath] ;
+                [skin protectedCallAndError:[NSString stringWithFormat:@"hs.settings:watcher %@ callback", watcherID] nargs:1 nresults:0];
+            }] ;
+            _lua_stackguard_exit(skin.L);
+        });
     }
 }
 
@@ -312,7 +314,7 @@ static const luaL_Reg module_metaLib[] = {
 
 int luaopen_hs_settings_internal(lua_State* L) {
     LuaSkin *skin = [LuaSkin sharedWithState:L];
-    refTable = [skin registerLibrary:settingslib metaFunctions:module_metaLib];
+    refTable = [skin registerLibrary:"hs.settings" functions:settingslib metaFunctions:module_metaLib];
 
     watcherManager = [[HSUserDefaultKVOWatcher alloc] init] ;
 
