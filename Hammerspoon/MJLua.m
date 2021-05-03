@@ -270,7 +270,7 @@ static int core_accessibilityState(lua_State* L) {
 }
 
 // SOURCE: https://stackoverflow.com/a/58985069
-bool isScreenRecordingEnabled()
+bool isScreenRecordingEnabled(void)
 {
     if (@available(macos 10.15, *)) {
         BOOL canRecordScreen = YES;
@@ -309,7 +309,9 @@ bool isScreenRecordingEnabled()
                     }
                 }
             }
-            CFRelease(windowList);
+            if (windowList) {
+                CFRelease(windowList);
+            }
         }
         return canRecordScreen;
     } else {
@@ -846,7 +848,9 @@ static int MJLuaAtPanic(lua_State *L) {
 
 // Create a Lua environment with LuaSkin
 void MJLuaAlloc(void) {
-    MJLuaLogDelegate = [[HSLogger alloc] initWithLua:nil];
+    if (!MJLuaLogDelegate) {
+        MJLuaLogDelegate = [[HSLogger alloc] initWithLua:nil];
+    }
     LuaSkin *skin = [LuaSkin sharedWithDelegate:MJLuaLogDelegate];
     // on a reload, this won't get created in sharedWithDelegate:, so do it manually here
     if (!LuaSkin.mainLuaState) {
@@ -1041,10 +1045,7 @@ void MJLuaDeinit(void) {
 
     callShutdownCallback(skin.L);
 
-    if (MJLuaLogDelegate) {
-        [skin setDelegate:nil] ;
-        MJLuaLogDelegate = nil ;
-    }
+    [MJLuaLogDelegate setLuaState:nil];
 }
 
 // Destroy a Lua environment with LuaSiin
@@ -1116,7 +1117,7 @@ NSArray *MJLuaCompletionsForWord(NSString *completionWord) {
 
 // C-Code helper to return current active LuaState. Useful for callbacks to
 // verify stored LuaState still matches active one if GC fails to clear it.
-lua_State* MJGetActiveLuaState() {
+lua_State* MJGetActiveLuaState(void) {
     LuaSkin *skin = [LuaSkin sharedWithState:NULL];
   return skin.L ;
 }

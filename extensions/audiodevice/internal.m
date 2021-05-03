@@ -19,6 +19,7 @@ typedef struct _audioDeviceUserData {
     AudioDeviceID deviceId;
     int callback;
     BOOL watcherRunning;
+    LSGCCanary lsCanary;
 } audioDeviceUserData;
 
 // Define a datatype for hs.audiodevice.datasource objects
@@ -81,6 +82,10 @@ OSStatus audiodevice_callback(AudioDeviceID deviceID, UInt32 numAddresses, const
 
         audioDeviceUserData *userData = (audioDeviceUserData *)clientData;
         LuaSkin *skin = [LuaSkin sharedWithState:NULL];
+        if (![skin checkGCCanary:userData->lsCanary]) {
+            return;
+        }
+
         _lua_stackguard_entry(skin.L);
         if (userData->callback == LUA_NOREF) {
             [skin logError:@"hs.audiodevice.watcher callback fired, but no function has been set with hs.audiodevice.watcher.setCallback()"];
@@ -138,6 +143,9 @@ void new_device(lua_State* L, AudioDeviceID deviceId) {
     audioDevice->deviceId = deviceId;
     audioDevice->callback = LUA_NOREF;
     audioDevice->watcherRunning = NO;
+
+    LuaSkin *skin = [LuaSkin sharedWithState:L];
+    audioDevice->lsCanary = [skin createGCCanary];
 
     luaL_getmetatable(L, USERDATA_TAG);
     lua_setmetatable(L, -2);
@@ -1703,6 +1711,7 @@ static int audiodevice_gc(lua_State* L) {
     audiodevice_watcherStop(L);
 
     audioDevice->callback = [skin luaUnref:refTable ref:audioDevice->callback];
+    [skin destroyGCCanary:&(audioDevice->lsCanary)];
 
     return 0;
 }

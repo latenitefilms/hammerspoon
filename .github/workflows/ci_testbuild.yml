@@ -2,35 +2,40 @@ name: CI
 
 on:
   push:
-  pull_request_target:
+    branches:
+      - master
+  pull_request:
 
 jobs:
   build:
     name: Build and Test
-    if: >
-      github.event_name == 'push' ||
-      github.event_name == 'pull_request_target' && github.event.pull_request.head.repo.full_name != github.repository
-
     runs-on: macos-11.0
 
     steps:
-      - uses: actions/checkout@v2
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          fetch-depth: 0
+
       - name: Prepare environment
         run: ./scripts/github-ci-pre.sh
+
       - name: Generate and lint docs
         run: ./scripts/github-ci-docs.sh
       - name: Upload artifacts (docstrings lint annotations)
         if: always()
         uses: actions/upload-artifact@v2
         with:
+          name: annotations.json
           path: build/annotations.json
+
       - name: Build for testing
         run: ./scripts/github-ci-testbuild.sh
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v2
         with:
-          name: Build Log
+          name: build.log
           path: artifacts/build.log
       - name: Run tests
         id: test
@@ -44,14 +49,15 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v2
         with:
-          name: Test Log
+          name: test.log
           path: artifacts/test.log
       - name: Upload artifacts (test results)
         if: always()
         uses: actions/upload-artifact@v2
         with:
-          name: Test Results
+          name: test_results
           path: build/reports/junit.xml
+
       - name: IRC notification - push
         uses: Gottox/irc-message-action@v1.3.0
         if: ${{ always() && github.event_name == 'push' && github.repository == 'hammerspoon/hammerspoon' }}
@@ -75,28 +81,3 @@ jobs:
               * ${{ github.event.pull_request.html_url }}
             ${{ steps.test.outputs.test_result }}
 
-  publish:
-    name: "Process Test Results"
-    needs: build
-    runs-on: ubuntu-latest
-    if: always()
-
-    steps:
-      - name: Download Artifacts
-        uses: actions/download-artifact@v2
-        with:
-          path: artifacts
-
-      - name: Publish Results
-        uses: EnricoMi/publish-unit-test-result-action@v1
-        with:
-          check_name: View Test Results
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          files: "artifacts/**/*.xml"
-
-      - name: Publish Docstring Annotations
-        uses: yuzutech/annotations-action@v0.3.0
-        with:
-          repo-token: "${{ secrets.GITHUB_TOKEN }}"
-          title: "Docstrings linter"
-          input: "artifacts/artifact/annotations.json"

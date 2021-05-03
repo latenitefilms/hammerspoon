@@ -259,6 +259,8 @@ static NSMutableSet *_sharedWarnings ;
     NSLog(@"createLuaState");
     NSAssert((LuaSkin.mainLuaState == NULL), @"createLuaState called on a live Lua environment", nil);
     self.uuid = [NSUUID UUID];
+    [self logBreadcrumb:[NSString stringWithFormat:@"createLuaState: %@", self.uuid]];
+
     LuaSkin.mainLuaState = luaL_newstate();
     luaL_openlibs(LuaSkin.mainLuaState);
 
@@ -293,7 +295,7 @@ catastrophe:
 }
 
 - (void)destroyLuaState {
-    NSLog(@"destroyLuaState");
+    [self logBreadcrumb:[NSString stringWithFormat:@"destroyLuaState: %@", self.uuid]];
     NSAssert((LuaSkin.mainLuaState != NULL), @"destroyLuaState called with no Lua environment", nil);
     if (LuaSkin.mainLuaState) {
         [self.retainedObjectsRefTableMappings enumerateKeysAndObjectsUsingBlock:^(NSNumber *refTableN, NSMutableDictionary *objectMappings, __unused BOOL *stop) {
@@ -302,7 +304,7 @@ catastrophe:
                 for (id object in objectMappings.allValues) [self luaRelease:tmpRefTable forNSObject:object] ;
 
             } else {
-                NSLog(@"destroyLuaState - invalid retainedObject reference table entry:%@ = %@", refTableN, objectMappings) ;
+                [self logBreadcrumb:[NSString stringWithFormat:@"destroyLuaState - invalid retainedObject reference table entry: %@ = %@", refTableN, objectMappings]];
             }
         }] ;
         [self.retainedObjectsRefTableMappings           removeAllObjects] ;
@@ -331,18 +333,37 @@ catastrophe:
     [self createLuaState];
 }
 
-- (BOOL)checkLuaSkinInstance:(NSString *)checkUUID {
+- (BOOL)checkGCCanary:(LSGCCanary)canary {
     if (!self.L) {
         [self logBreadcrumb:@"LuaSkin nil lua_State detected"];
         return NO;
     }
 
-    if (![self.uuid.UUIDString isEqualToString:checkUUID]) {
-        [self logBreadcrumb:@"LuaSkin UUID mismatch detected"];
+    NSString *NSlsCanary = [NSString stringWithCString:canary.uuid encoding:NSUTF8StringEncoding];
+    if (!NSlsCanary || ![self.uuid.UUIDString isEqualToString:NSlsCanary]) {
+        [self logWarn:@"LuaSkin has caught an attempt to operate on an object that has been garbage collected."];
         return NO;
     }
 
     return YES;
+}
+
+- (LSGCCanary)createGCCanary {
+    LSGCCanary canary;
+    memset(canary.uuid, 0, LSUUIDLen);
+    strncpy(canary.uuid, "UNINITIALISED", 13);
+
+    const char *tmpUUID = [self.uuid.UUIDString cStringUsingEncoding:NSUTF8StringEncoding];
+    if (tmpUUID) {
+        strncpy(canary.uuid, tmpUUID, LSUUIDLen);
+    }
+
+    return canary;
+}
+
+- (void)destroyGCCanary:(LSGCCanary *)canary {
+    memset(canary->uuid, 0, LSUUIDLen);
+    strncpy(canary->uuid, "GC", 2);
 }
 
 #pragma mark - Methods for calling into Lua from C
@@ -1710,6 +1731,17 @@ nextarg:
 - (void)logWarn:(NSString *)theMessage       { [self logAtLevel:LS_LOG_WARN withMessage:theMessage] ; }
 - (void)logError:(NSString *)theMessage      { [self logAtLevel:LS_LOG_ERROR withMessage:theMessage] ; }
 - (void)logBreadcrumb:(NSString *)theMessage { [self logAtLevel:LS_LOG_BREADCRUMB withMessage:theMessage] ; }
+
+- (void)logKnownBug:(NSString *)message {
+    id theDelegate = self.delegate;
+
+    if (theDelegate &&  [theDelegate respondsToSelector:@selector(logKnownBug:)]) {
+        [theDelegate logKnownBug:message];
+    } else {
+        NSLog(@"(missing delegate):known bug: %@", message);
+    }
+
+}
 
 + (void)classLogAtLevel:(int)level withMessage:(NSString *)theMessage {
     if ([NSThread isMainThread]) {

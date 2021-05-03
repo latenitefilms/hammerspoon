@@ -42,10 +42,17 @@ extern int luaopen_luaskin_internal(lua_State* L) ; // entry vector to luaskin.m
 #endif
  */
 
+#pragma mark - LuaSkin typedefs/defines
+
 // Define a break variable for the reference checker
 #define LS_RBREAK INT_MIN
 
 typedef int LSRefTable;
+
+#define LSUUIDLen 37
+typedef struct LSGCCanary {
+    char uuid[LSUUIDLen];
+} LSGCCanary;
 
 // Define some bits for masking operations in the argument checker
 /*!
@@ -170,6 +177,13 @@ NSString *specMaskToString(int spec);
  @param theMessage The text of the message to be logged.
  */
 - (void)logForLuaSkinAtLevel:(int)level withMessage:(NSString *)theMessage ;
+
+/*!
+ @abstract Log a known, but avoided issue via the log delegate, primarily to ensure it can be recorded in a crash reporting service
+ @discussion If no delegate has been assigned, the message is logged to the system logs via NSLog.
+ @param message The message to log
+ */
+- (void)logKnownBug:(NSString *)message, ...;
 @end
 
 /*!
@@ -269,7 +283,9 @@ NSString *specMaskToString(int spec);
  */
 - (void)resetLuaState;
 
-- (BOOL)checkLuaSkinInstance:(NSString *)checkUUID;
+- (BOOL)checkGCCanary:(LSGCCanary)canary;
+- (LSGCCanary)createGCCanary;
+- (void)destroyGCCanary:(LSGCCanary *)canary;
 
 #pragma mark - Methods for calling into Lua from C
 
@@ -910,6 +926,13 @@ NSString *specMaskToString(int spec);
  @param theMessage the message to log
  */
 - (void)logBreadcrumb:(NSString *)theMessage ;
+
+/*!
+ @abstract Log a known, but avoided issue via the log delegate, primarily to ensure it can be recorded in a crash reporting service
+ @discussion If no delegate has been assigned, the message is logged to the system logs via NSLog.
+ @param message The message to log
+ */
+- (void)logKnownBug:(NSString *)message;
 
 // FIXME: Should this be documented? Seems unnecessary to do so, at the moment
 + (void)classLogAtLevel:(int)level withMessage:(NSString *)theMessage;

@@ -87,11 +87,22 @@ static int crashKV(lua_State *L) {
     NSString *value = [skin toNSObjectAtIndex:2];
 
     [SentrySDK configureScope:^(SentryScope * _Nonnull scope) {
-        [scope setExtras:@{key: value}];
+        [scope setExtraValue:value forKey:key];
     }];
      
     return 0;
 }
+
+// This is intentionally undocumented, do not document it
+//static int crashEvent(lua_State *L) {
+//    LuaSkin *skin = [LuaSkin sharedWithState:L];
+//    [skin checkArgs:LS_TSTRING, LS_TBREAK];
+//
+//    NSString *message = [skin toNSObjectAtIndex:1];
+//
+//    [skin logKnownBug:message];
+//    return 0;
+//}
 
 /// hs.crash.residentSize() -> integer or nil
 /// Function
@@ -124,6 +135,7 @@ static const luaL_Reg crashlib[] = {
     {"throwObjCException", throwTheWorld},
     {"crashLog", crashLog},
     {"crashKV", crashKV},
+//    {"crashEvent", crashEvent},
     {"residentSize", residentSize},
 
     {NULL, NULL}

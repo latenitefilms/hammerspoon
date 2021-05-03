@@ -25,6 +25,7 @@ typedef struct _usbwatcher_t {
     IONotificationPortRef gNotifyPort;
     io_iterator_t gAddedIter;
     CFRunLoopSourceRef runLoopSource;
+    LSGCCanary lsCanary;
 } usbwatcher_t;
 
 // private data for each USB device
@@ -45,6 +46,9 @@ void DeviceNotification(void *refCon, io_service_t service __unused, natural_t m
     if (messageType == kIOMessageServiceIsTerminated) {
         LuaSkin *skin = [LuaSkin sharedWithState:NULL];
         lua_State *L = skin.L;
+        if (![skin checkGCCanary:watcher->lsCanary]) {
+            return;
+        }
         _lua_stackguard_entry(L);
 
         [skin pushLuaRef:refTable ref:watcher->fn];
@@ -197,6 +201,7 @@ static int usb_watcher_new(lua_State* L) {
     usbwatcher->running = NO;
     usbwatcher->gNotifyPort = IONotificationPortCreate(kIOMasterPortDefault);
     usbwatcher->runLoopSource = IONotificationPortGetRunLoopSource(usbwatcher->gNotifyPort);
+    usbwatcher->lsCanary = [skin createGCCanary];
 
     luaL_getmetatable(L, USERDATA_TAG);
     lua_setmetatable(L, -2);
@@ -273,6 +278,7 @@ static int usb_watcher_gc(lua_State* L) {
     lua_pushcfunction(L, usb_watcher_stop) ; lua_pushvalue(L,1); lua_call(L, 1, 1);
 
     usbwatcher->fn = [skin luaUnref:refTable ref:usbwatcher->fn];
+    [skin destroyGCCanary:&(usbwatcher->lsCanary)];
 
     IONotificationPortDestroy(usbwatcher->gNotifyPort);
 

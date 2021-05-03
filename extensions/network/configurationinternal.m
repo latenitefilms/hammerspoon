@@ -16,6 +16,7 @@ typedef struct _dynamicstore_t {
     int               callbackRef ;
     int               selfRef ;
     BOOL              watcherEnabled ;
+    LSGCCanary            lsCanary;
 } dynamicstore_t;
 
 static void doDynamicStoreCallback(__unused SCDynamicStoreRef store, CFArrayRef changedKeys, void *info) {
@@ -25,6 +26,9 @@ static void doDynamicStoreCallback(__unused SCDynamicStoreRef store, CFArrayRef 
         if ((thePtr->callbackRef != LUA_NOREF) && (thePtr->selfRef != LUA_NOREF)) {
             LuaSkin   *skin = [LuaSkin sharedWithState:NULL] ;
             lua_State *L    = [skin L] ;
+            if (![skin checkGCCanary:thePtr->lsCanary]) {
+                return;
+            }
             _lua_stackguard_entry(L);
             [skin pushLuaRef:refTable ref:thePtr->callbackRef] ;
             [skin pushLuaRef:refTable ref:thePtr->selfRef] ;
@@ -65,6 +69,7 @@ static int newStoreObject(lua_State *L) {
         thePtr->callbackRef    = LUA_NOREF ;
         thePtr->selfRef        = LUA_NOREF ;
         thePtr->watcherEnabled = NO ;
+        thePtr->lsCanary = [skin createGCCanary];
 
         luaL_getmetatable(L, USERDATA_TAG) ;
         lua_setmetatable(L, -2) ;
@@ -649,6 +654,7 @@ static int userdata_gc(lua_State* L) {
         }
     }
     thePtr->selfRef = [skin luaUnref:refTable ref:thePtr->selfRef] ;
+    [skin destroyGCCanary:&(thePtr->lsCanary)];
 
     CFRelease(thePtr->storeObject) ;
     lua_pushnil(L) ;
