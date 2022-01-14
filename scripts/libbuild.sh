@@ -447,7 +447,6 @@ function op_build_assert() {
     assert_gawk
     assert_xcbeautify
     assert_cocoapods_state
-    assert_docs_requirements
 
     if [ "${XCODE_CONFIGURATION}" == "Release" ]; then
         if [ ! -f "${SENTRY_TOKEN_API_FILE}" ]; then
@@ -463,7 +462,10 @@ function op_test_assert() {
 
 function op_docs_assert() {
     echo "Checking docs environment..."
-    assert_docs_requirements
+    # We only need to assert requirements.txt satisfaction if we're going to be generating output that needs the modules it specifies
+    if [ "${DOCS_MD}" == 1 ] || [ "${DOCS_HTML}" == 1 ] || [ "${DOCS_DASH}" == 1 ]; then
+        assert_docs_requirements
+    fi
 }
 
 function op_installdeps_assert() {
@@ -593,6 +595,7 @@ function assert_xcbeautify() {
 }
 
 function assert_docs_requirements() {
+    # FIXME: This is overly broad - if all that's happening is linting or JSON generation, these requirements are not required
   echo "Checking Python requirements.txt is satisfied..."
   echo "import sys
 import pkg_resources
