@@ -20,6 +20,112 @@ static NSImage *missingIconForFile ;
 
 static NSMutableSet *backgroundCallbacks ;
 
+#pragma mark NSImage to ASCII Conversion
+
+/*
+ This code is from [ASCII Converter](https://github.com/zonble/cocoaascii).
+ 
+ MIT License
+
+ Copyright (c) 2021 Weizhong Yang a.k.a zonble
+
+ Permission is hereby granted, free of charge, to any person obtaining a copy
+ of this software and associated documentation files (the "Software"), to deal
+ in the Software without restriction, including without limitation the rights
+ to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+
+ The above copyright notice and this permission notice shall be included in all
+ copies or substantial portions of the Software.
+
+ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ SOFTWARE.
+ */
+
+NSString *stringForBrightness(CGFloat brightness) {
+    if (brightness < (19.0 / 255)) {
+        return @"&";
+    }
+    else if (brightness < (50.0 / 255)) {
+        return @"8";
+    }
+    else if (brightness < (75.0 / 255)) {
+        return @"0";
+    }
+    else if (brightness < (100.0 / 255)) {
+        return @"$";
+    }
+    else if (brightness < (130.0 / 255)) {
+        return @"2";
+    }
+    else if (brightness < (165.0 / 255)) {
+        return @"1";
+    }
+    else if (brightness < (180.0 / 255)) {
+        return @"|";
+    }
+    else if (brightness < (200.0 / 255)) {
+        return @";";
+    }
+    else if (brightness < (218.0 / 255)) {
+        return @":";
+    }
+    else if (brightness < (229.0 / 255)) {
+        return @"'";
+    }
+    return @" ";
+}
+
+@interface NSImage(ASCII)
+- (NSString *)asciiArtWithWidth:(NSInteger)width height:(NSInteger)height;
+@end
+
+@implementation NSImage (ASCII)
+
+- (NSString *)asciiArtWithWidth:(NSInteger)width height:(NSInteger)height
+{
+    if (!width || !height) {
+        return nil;
+    }
+
+    NSMutableString *string = [NSMutableString string];
+
+    NSBitmapImageRep *bitmapImage = [[NSBitmapImageRep alloc]
+            initWithBitmapDataPlanes:NULL
+                          pixelsWide:width
+                          pixelsHigh:height
+                       bitsPerSample:8
+                     samplesPerPixel:4
+                            hasAlpha:YES
+                            isPlanar:NO
+                      colorSpaceName:NSCalibratedRGBColorSpace
+                         bytesPerRow:0
+                        bitsPerPixel:0];
+    bitmapImage.size = NSMakeSize(width, height);
+
+    [NSGraphicsContext saveGraphicsState];
+    [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithBitmapImageRep:bitmapImage]];
+    [self drawInRect:NSMakeRect(0, 0, width, height) fromRect:NSZeroRect operation:NSCompositeCopy fraction:1.0];
+    [NSGraphicsContext restoreGraphicsState];
+    for (NSInteger i = 0; i < height; i++) {
+        for (NSInteger j = 0; j < width; j++) {
+            NSColor *color = [bitmapImage colorAtX:j y:i];
+            NSColor *wColor = [color colorUsingColorSpaceName:NSDeviceWhiteColorSpace];
+            [string appendString:stringForBrightness([wColor whiteComponent])];
+        }
+        [string appendString:@"\n"];
+    }
+    return string;
+}
+
+@end
+
 #pragma mark - Module Constants
 
 /// hs.image.systemImageNames[]
@@ -662,17 +768,17 @@ static int additionalImages(lua_State *L) {
 static int getExifFromPath(lua_State *L) {
     LuaSkin *skin = [LuaSkin sharedWithState:L] ;
     [skin checkArgs:LS_TSTRING, LS_TBREAK] ;
-    
+
     NSString* imagePath = [skin toNSObjectAtIndex:1];
     imagePath = [imagePath stringByExpandingTildeInPath];
     imagePath = [[imagePath componentsSeparatedByCharactersInSet:[NSCharacterSet newlineCharacterSet]] componentsJoinedByString:@""];
-    
+
     // SOURCE: https://stackoverflow.com/a/18301470
     NSURL *imageFileURL = [NSURL fileURLWithPath:imagePath];
     CGImageSourceRef imageSource = CGImageSourceCreateWithURL((CFURLRef)imageFileURL, NULL);
     NSDictionary *treeDict;
     NSDictionary *exifTree;
-    
+
     NSDictionary *options = [NSDictionary dictionaryWithObjectsAndKeys:
                              [NSNumber numberWithBool:NO], (NSString *)kCGImageSourceShouldCache,
                              nil];
@@ -683,13 +789,13 @@ static int getExifFromPath(lua_State *L) {
         treeDict = [NSDictionary dictionaryWithDictionary:(NSDictionary*)CFBridgingRelease(imageProperties)];
         exifTree = [treeDict objectForKey:@"{Exif}"];
     }
-    
+
     if (exifTree) {
         [skin pushNSObject:exifTree];
     } else {
         lua_pushnil(L);
     }
-    
+
     return 1 ;
 }
 
@@ -1498,6 +1604,164 @@ static int copyImage(lua_State *L) {
     return 1 ;
 }
 
+/// hs.image:toASCII([width, height]) -> string
+/// Method
+/// Converts an image to an ASCII representation of the image in the form of a string.
+///
+/// Parameters:
+///  * width - An optional width in pixels (defaults to image width if nothing supplied).
+///  * height - An optional height in pixels (defaults to image height if nothing supplied).
+///
+/// Returns:
+///  * A string.
+static int toASCII(lua_State* L) {
+    LuaSkin *skin = [LuaSkin sharedWithState:L] ;
+    [skin checkArgs:LS_TUSERDATA, USERDATA_TAG, LS_TNUMBER | LS_TOPTIONAL, LS_TNUMBER | LS_TOPTIONAL, LS_TBREAK] ;
+
+    NSImage *theImage = [skin luaObjectAtIndex:1 toClass:"NSImage"] ;
+
+    NSNumber *width = [skin toNSObjectAtIndex:2] ;
+    NSNumber *height = [skin toNSObjectAtIndex:3] ;
+
+    if (!width) {
+        width = @(theImage.size.width);
+    } ;
+    if (!height) {
+        height = @(theImage.size.height);
+    } ;
+
+    NSString *result = [theImage asciiArtWithWidth:[width longValue] height:[height longValue]];
+    [skin pushNSObject:result];
+
+    return 1;
+}
+
+/// hs.image:bitmapRepresentation([size], [gray]) -> imageObject
+/// Method
+/// Creates a new bitmap representation of the image and returns it as a new hs.image object
+///
+/// Parameters:
+///  * `size` - an optional table specifying the height and width the image should be scaled to in the bitmap. The size is specified as table with `h` and `w` keys set. Defaults to the size of the source image object.
+///  * `gray` - an optional boolean, default false, specifying whether or not the bitmap should be converted to grayscale (true) or left as RGB color (false).
+///
+/// Returns:
+///  * a new hs.image object
+///
+/// Notes:
+///  * a bitmap representation of an image is rendered at the specific size specified (or inherited) when it is generated -- if you later scale it to a different size, the bitmap will be scaled as larger or smaller pixels rather than smoothly.
+///
+///  * this method may be useful when preparing images for other devices (e.g. `hs.streamdeck`).
+static int image_bitmapRepresentation(lua_State *L) {
+    LuaSkin *skin = [LuaSkin sharedWithState:L] ;
+    [skin checkArgs:LS_TUSERDATA, USERDATA_TAG, LS_TBREAK | LS_TVARARG] ;
+    NSImage *theImage = [skin luaObjectAtIndex:1 toClass:"NSImage"] ;
+
+    NSSize           bitmapSize     = theImage.size ;
+    NSColorSpaceName colorSpaceName = NSCalibratedRGBColorSpace ;
+    NSInteger        bps            = 8 ;
+    BOOL             alpha          = YES ;
+    NSInteger        spp            = 4 ;
+
+    switch (lua_gettop(L)) {
+        case 1:
+            break ;
+        case 2:
+            if (lua_type(L, 2) == LUA_TTABLE) {
+                bitmapSize = [skin tableToSizeAtIndex:2] ;
+                break ;
+            } else if (lua_type(L, 2) == LUA_TBOOLEAN) {
+                colorSpaceName = lua_toboolean(L, 2) ? NSCalibratedWhiteColorSpace : NSCalibratedRGBColorSpace ;
+                break ;
+            }
+        default: {
+            [skin checkArgs:LS_TUSERDATA, USERDATA_TAG, LS_TTABLE, LS_TBOOLEAN, LS_TBREAK] ;
+            bitmapSize = [skin tableToSizeAtIndex:2] ;
+            colorSpaceName = lua_toboolean(L, 3) ? NSCalibratedWhiteColorSpace : NSCalibratedRGBColorSpace ;
+        }
+    }
+
+// // An earlier version of this method allowed for more options, but most were un-displayable on the screen
+// // leaving this code in here in case it becomes worth experimenting with in preparing images for devices
+// // other than the screen that might need things like other bit-depths or CMYK, etc.
+//
+//     if (lua_gettop(L) > 1) {
+//         if (lua_getfield(L, 2, "size") == LUA_TTABLE) {
+//             if (lua_getfield(L, -1, "w") == LUA_TNUMBER) bitmapSize.width  = lua_tonumber(L, -1) ;
+//             if (lua_getfield(L, -2, "h") == LUA_TNUMBER) bitmapSize.height = lua_tonumber(L, -1) ;
+//             lua_pop(L, 2) ; // w and h
+//         } else if (lua_type(L, -1) != LUA_TNIL) {
+//             return luaL_argerror(L, 2, "size must be specified as a table") ;
+//         }
+//         lua_pop(L, 1) ; // size
+//
+//         if (lua_getfield(L, 2, "bpc") == LUA_TNUMBER) {
+//             bps = lua_tointeger(L, -1) ;
+//             if (!(bps == 1 || bps == 2 || bps == 4 || bps == 8 || bps == 12 || bps == 16)) {
+//                 return luaL_argerror(L, 2, "bpc must be one of 1, 2, 4, 8, 12, or 16") ;
+//             }
+//         } else if (lua_type(L, -1) != LUA_TNIL) {
+//             return luaL_argerror(L, 2, "bpc must be specified as a number") ;
+//         }
+//         lua_pop(L, 1) ; // bpc
+//
+//         if (lua_getfield(L, 2, "scheme") == LUA_TSTRING) {
+//             NSString *scheme = [skin toNSObjectAtIndex:-1] ;
+//             if ([scheme isEqualToString:@"RGB"]) {
+//                 colorSpaceName = NSCalibratedRGBColorSpace ;
+//             } else if ([scheme isEqualToString:@"CMYK"]) {
+//                 colorSpaceName = NSDeviceCMYKColorSpace ;
+//             } else if ([scheme isEqualToString:@"Grayscale"]) {
+//                 colorSpaceName = NSCalibratedWhiteColorSpace ;
+//             } else {
+//                 return luaL_argerror(L, 2, "scheme must be one RGB, CMYK, or Grayscale") ;
+//             }
+//         } else if (lua_type(L, -1) != LUA_TNIL) {
+//             return luaL_argerror(L, 2, "scheme must be specified as a string") ;
+//         }
+//         lua_pop(L, 1) ; // scheme
+//
+//         if (lua_getfield(L, 2, "alpha") == LUA_TBOOLEAN) {
+//             alpha = lua_toboolean(L, -1) ;
+//         } else if (lua_type(L, -1) != LUA_TNIL) {
+//             return luaL_argerror(L, 2, "alpha must be specified as a boolean") ;
+//         }
+//         lua_pop(L, 1) ; // alpha
+
+        if (colorSpaceName == NSCalibratedRGBColorSpace) {
+            spp = 3 + (alpha ? 1 : 0) ;
+        } else if (colorSpaceName == NSDeviceCMYKColorSpace) {
+            spp = 4 + (alpha ? 1 : 0) ;
+        } else if (colorSpaceName == NSCalibratedWhiteColorSpace) {
+            spp = 1 + (alpha ? 1 : 0) ;
+        }
+//     }
+
+    NSBitmapImageRep *rep = [[NSBitmapImageRep alloc] initWithBitmapDataPlanes:NULL
+                                                                    pixelsWide:bitmapSize.width
+                                                                    pixelsHigh:bitmapSize.height
+                                                                 bitsPerSample:bps
+                                                               samplesPerPixel:spp
+                                                                      hasAlpha:alpha
+                                                                      isPlanar:NO
+                                                                colorSpaceName:colorSpaceName
+                                                                   bytesPerRow:0
+                                                                  bitsPerPixel:0] ;
+    [rep setSize:bitmapSize] ;
+
+    [NSGraphicsContext saveGraphicsState] ;
+    [NSGraphicsContext setCurrentContext:[NSGraphicsContext graphicsContextWithBitmapImageRep:rep]] ;
+    [theImage drawInRect:NSMakeRect(0, 0, bitmapSize.width, bitmapSize.height)
+                fromRect:NSMakeRect(0, 0, theImage.size.width, theImage.size.height)
+               operation:NSCompositingOperationCopy
+                fraction:1.0] ;
+    [NSGraphicsContext restoreGraphicsState] ;
+
+    NSImage* newImage = [[NSImage alloc]initWithSize:bitmapSize] ;
+    [newImage addRepresentation:rep] ;
+    [skin pushNSObject:newImage] ;
+    return 1 ;
+}
+
 #pragma mark - Conversion Extensions
 
 // [skin pushNSObject:NSImage]
@@ -1570,7 +1834,9 @@ static const luaL_Reg userdata_metaLib[] = {
     {"croppedCopy",       croppedCopy},
     {"saveToFile",        saveToFile},
     {"encodeAsURLString", encodeAsString},
-    {"colorAt",			  colorAt},
+    {"colorAt",           colorAt},
+    {"toASCII",           toASCII},
+    {"bitmapRepresentation", image_bitmapRepresentation},
 
     {"__tostring",        userdata_tostring},
     {"__eq",              userdata_eq},
