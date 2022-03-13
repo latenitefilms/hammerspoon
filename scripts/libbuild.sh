@@ -275,15 +275,20 @@ function op_keychain_post() {
 }
 
 function op_notarize() {
-    echo " Notarizing ${HAMMERSPOON_BUNDLE_PATH}..."
+    echo " Notarizing ${NOTARIZATION_FILE:-${HAMMERSPOON_BUNDLE_PATH}}..."
     op_notarize_assert
 
-    echo " Zipping..."
-    local ZIP_PATH="${HAMMERSPOON_BUNDLE_PATH}.zip"
-    create_zip "${HAMMERSPOON_BUNDLE_PATH}" "${ZIP_PATH}"
+    local IS_ZIP=0
+    if [ "${NOTARIZATION_FILE}" == "" ]; then
+        echo " Zipping..."
+        local ZIP_PATH="${HAMMERSPOON_BUNDLE_PATH}.zip"
+        create_zip "${HAMMERSPOON_BUNDLE_PATH}" "${ZIP_PATH}"
+        NOTARIZATION_FILE="${ZIP_PATH}"
+        IS_ZIP=1
+    fi
 
     echo " Uploading to Apple Notary Service (may take many minutes)..."
-    local UPLOAD_OUTPUT ; UPLOAD_OUTPUT=$(xcrun notarytool submit "${ZIP_PATH}" --keychain-profile "${KEYCHAIN_PROFILE}" --wait -f json)
+    local UPLOAD_OUTPUT ; UPLOAD_OUTPUT=$(xcrun notarytool submit "${NOTARIZATION_FILE}" --keychain-profile "${KEYCHAIN_PROFILE}" --wait -f json)
     local UPLOAD_ID ; UPLOAD_ID=$(echo "${UPLOAD_OUTPUT}" | jq -r .id)
     local UPLOAD_STATUS ; UPLOAD_STATUS=$(echo "${UPLOAD_OUTPUT}" | jq -r .status)
     local UPLOAD_MSG ; UPLOAD_MSG=$(echo "${UPLOAD_OUTPUT}" | jq -r .message)
@@ -306,12 +311,14 @@ function op_notarize() {
         fail "Notarization rejection"
     fi
 
-    # Remove the zip we uploaded for Notarization
-    ${RM} "${HAMMERSPOON_BUNDLE_PATH}.zip"
+    if [ "${IS_ZIP}" == "1" ]; then
+        # Remove the zip we uploaded for Notarization
+        ${RM} "${HAMMERSPOON_BUNDLE_PATH}.zip"
 
-    # At this stage we don't know if this is a full release build or a CI build, so prepare a notarized zip for both
-    create_zip "${HAMMERSPOON_BUNDLE_PATH}" "${HAMMERSPOON_BUNDLE_PATH}-$(release_version).zip"
-    create_zip "${HAMMERSPOON_BUNDLE_PATH}" "${HAMMERSPOON_BUNDLE_PATH}-$(nightly_version).zip"
+        # At this stage we don't know if this is a full release build or a CI build, so prepare a notarized zip for both
+        create_zip "${HAMMERSPOON_BUNDLE_PATH}" "${HAMMERSPOON_BUNDLE_PATH}-$(release_version).zip"
+        create_zip "${HAMMERSPOON_BUNDLE_PATH}" "${HAMMERSPOON_BUNDLE_PATH}-$(nightly_version).zip"
+    fi
 
     echo " ✅ Notarization successful!"
 }
@@ -346,7 +353,7 @@ function op_release() {
     # We always do a local test of the signed/notarized build, to ensure it runs
     echo "Opening Finder for a local test..."
     open -R "${HAMMERSPOON_BUNDLE_PATH}"
-    echo -n "******** TEST THE BUILD PLEASE ('yes' to confirm it works):"
+    echo -n "******** TEST THE BUILD PLEASE ('yes' to confirm it works): "
     local REPLY=""
     read -r REPLY
 
@@ -358,6 +365,7 @@ function op_release() {
     echo " Zipping..."
     # FIXME: HAMMERSPOON_BUNDLE_PATH here is not right, that gives us Hammerspoon.app-X.Y.Z.zip and we don't want the .app
     local ZIP_PATH="${BUILD_HOME}/${APP_NAME}-${VERSION}.zip"
+    rm -f "${ZIP_PATH}"
     create_zip "${HAMMERSPOON_BUNDLE_PATH}" "${ZIP_PATH}"
 
     echo " Creating release on GitHub..."
@@ -382,6 +390,7 @@ function op_release() {
     cp "${BUILD_HOME}/Hammerspoon.tgz" dash/docsets/Hammerspoon/
     pushd "dash" >/dev/null || fail "Unable to access dash repo at: ${HAMMERSPOON_HOME}/../dash"
     git remote add hammerspoon git@github.com:hammerspoon/Dash-User-Contributions.git
+    git checkout -b "hammerspoon-${VERSION}"
     cat >docsets/Hammerspoon/docset.json <<EOF
     {
        "name": "Hammerspoon",
@@ -431,6 +440,17 @@ EOF
     git push
     popd >/dev/null || fail "Unknown"
 
+    echo " Updating Sentry release..."
+    export SENTRY_ORG="${SENTRY_ORG:-hammerspoon}"
+    export SENTRY_PROJECT="${SENTRY_PROJECT:-hammerspoon}"
+    export SENTRY_LOG_LEVEL=error
+    if [ "${DEBUG}" == "1" ]; then
+        SENTRY_LOG_LEVEL=debug
+    fi
+    export SENTRY_AUTH_TOKEN
+    "${HAMMERSPOON_HOME}/scripts/sentry-cli" releases set-commits --auto "${VERSION}" 2>&1 | tee "${BUILD_HOME}/sentry-release.log"
+    "${HAMMERSPOON_HOME}/scripts/sentry-cli" releases finalize "${VERSION}" 2>&1 | tee -a "${BUILD_HOME}/sentry-release.log"
+ 
     if [ "${TWITTER_ACCOUNT}" != "" ]; then
         echo " Tweeting release..."
         local T_PATH=$(/usr/bin/gem contents t 2>/dev/null | grep "\/t$")

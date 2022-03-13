@@ -340,16 +340,23 @@ catastrophe:
     }
 
     NSString *NSlsCanary = [NSString stringWithCString:canary.uuid encoding:NSUTF8StringEncoding];
+#if 0
+//#ifdef DEBUG
+    // This gets kinda spammy if enabled all the time, but it's useful while debugging canary issues
+    NSLog(@"checkGCCanary (%@) comparing %@ vs %@", [NSThread.callStackSymbols objectAtIndex:1], self.uuid.UUIDString, NSlsCanary);
+#endif
     if (!NSlsCanary || ![self.uuid.UUIDString isEqualToString:NSlsCanary]) {
-        NSLog(@"LuaSkin caught an attempt to operate on an object that has been garbage collected.");
-        for (NSString *stackSymbol in [NSThread callStackSymbols]) {
-            NSLog(@"Previous stack symbol: %@", stackSymbol);
-        }
-        NSException* myException = [NSException
-                                    exceptionWithName:@"LuaGCCanaryMismatch"
-                                    reason:@"GC Canary changed"
-                                    userInfo:nil];
-        @throw myException;
+        // Throwing an exception is not helpful in production, because the whole point of the canary check is to discard events that are being delivered to stale Lua instances.
+        // We can hang onto the code anyway in case we need it later.
+//        NSLog(@"LuaSkin caught an attempt to operate on an object that has been garbage collected.");
+//        for (NSString *stackSymbol in [NSThread callStackSymbols]) {
+//            NSLog(@"Previous stack symbol: %@", stackSymbol);
+//        }
+//        NSException* myException = [NSException
+//                                    exceptionWithName:@"LuaGCCanaryMismatch"
+//                                    reason:[NSString stringWithFormat:@"GC Canary changed: Expected %@, found %@", self.uuid.UUIDString, NSlsCanary]
+//                                    userInfo:nil];
+//        @throw myException;
         return NO;
     }
 
