@@ -21,7 +21,9 @@ SentryOptions ()
 
 NSString *const kSentryDefaultEnvironment = @"production";
 
-@implementation SentryOptions
+@implementation SentryOptions {
+    BOOL _enableTracingManual;
+}
 
 - (void)setMeasurement:(SentryMeasurementValue *)measurement
 {
@@ -74,6 +76,9 @@ NSString *const kSentryDefaultEnvironment = @"production";
         self.enableAutoPerformanceTracing = YES;
         self.enableCaptureFailedRequests = YES;
         self.environment = kSentryDefaultEnvironment;
+
+        _enableTracing = NO;
+        _enableTracingManual = NO;
 #if SENTRY_HAS_UIKIT
         self.enableUIViewControllerTracing = YES;
         self.attachScreenshot = NO;
@@ -160,9 +165,11 @@ NSString *const kSentryDefaultEnvironment = @"production";
 {
     if (self = [self init]) {
         if (![self validateOptions:options didFailWithError:error]) {
-            [SentryLog
-                logWithMessage:[NSString stringWithFormat:@"Failed to initialize: %@", *error]
-                      andLevel:kSentryLevelError];
+            if (error != nil) {
+                SENTRY_LOG_ERROR(@"Failed to initialize SentryOptions: %@", *error);
+            } else {
+                SENTRY_LOG_ERROR(@"Failed to initialize SentryOptions");
+            }
             return nil;
         }
     }
@@ -235,12 +242,17 @@ NSString *const kSentryDefaultEnvironment = @"production";
         }
     }
 
-    NSString *dsn = @"";
-    if (nil != options[@"dsn"] && [options[@"dsn"] isKindOfClass:[NSString class]]) {
-        dsn = options[@"dsn"];
-    }
+    if (options[@"dsn"] != [NSNull null]) {
+        NSString *dsn = @"";
+        if (nil != options[@"dsn"] && [options[@"dsn"] isKindOfClass:[NSString class]]) {
+            dsn = options[@"dsn"];
+        }
 
-    self.parsedDsn = [[SentryDsn alloc] initWithString:dsn didFailWithError:error];
+        self.parsedDsn = [[SentryDsn alloc] initWithString:dsn didFailWithError:error];
+        if (self.parsedDsn == nil) {
+            return NO;
+        }
+    }
 
     if ([options[@"release"] isKindOfClass:[NSString class]]) {
         self.releaseName = options[@"release"];
@@ -366,6 +378,10 @@ NSString *const kSentryDefaultEnvironment = @"production";
         self.tracesSampler = options[@"tracesSampler"];
     }
 
+    if ([options[@"enableTracing"] isKindOfClass:NSNumber.self]) {
+        self.enableTracing = [options[@"enableTracing"] boolValue];
+    }
+
     if ([options[@"inAppIncludes"] isKindOfClass:[NSArray class]]) {
         NSArray<NSString *> *inAppIncludes =
             [options[@"inAppIncludes"] filteredArrayUsingPredicate:isNSString];
@@ -424,11 +440,7 @@ NSString *const kSentryDefaultEnvironment = @"production";
     }
 #endif
 
-    if (nil != error && nil != *error) {
-        return NO;
-    } else {
-        return YES;
-    }
+    return YES;
 }
 
 - (void)setBool:(id)value block:(void (^)(BOOL))block
@@ -466,14 +478,38 @@ NSString *const kSentryDefaultEnvironment = @"production";
     return [self isValidTracesSampleRate:sampleRate];
 }
 
+- (void)setEnableTracing:(BOOL)enableTracing
+{
+    //`enableTracing` is basically an alias to tracesSampleRate
+    // by enabling it we set tracesSampleRate to maximum
+    // if the user did not configured other ways to enable tracing
+    if ((_enableTracing = enableTracing)) {
+        if (_tracesSampleRate == nil && _tracesSampler == nil && _enableTracing) {
+            _tracesSampleRate = @1;
+        }
+    }
+    _enableTracingManual = YES;
+}
+
 - (void)setTracesSampleRate:(NSNumber *)tracesSampleRate
 {
     if (tracesSampleRate == nil) {
         _tracesSampleRate = nil;
     } else if ([self isValidTracesSampleRate:tracesSampleRate]) {
         _tracesSampleRate = tracesSampleRate;
+        if (!_enableTracingManual) {
+            _enableTracing = YES;
+        }
     } else {
         _tracesSampleRate = _defaultTracesSampleRate;
+    }
+}
+
+- (void)setTracesSampler:(SentryTracesSamplerCallback)tracesSampler
+{
+    _tracesSampler = tracesSampler;
+    if (_tracesSampler != nil && !_enableTracingManual) {
+        _enableTracing = YES;
     }
 }
 
@@ -485,8 +521,9 @@ NSString *const kSentryDefaultEnvironment = @"production";
 
 - (BOOL)isTracingEnabled
 {
-    return (_tracesSampleRate != nil && [_tracesSampleRate doubleValue] > 0)
-        || _tracesSampler != nil;
+    return _enableTracing
+        && ((_tracesSampleRate != nil && [_tracesSampleRate doubleValue] > 0)
+            || _tracesSampler != nil);
 }
 
 #if SENTRY_TARGET_PROFILING_SUPPORTED
