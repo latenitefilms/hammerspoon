@@ -46,8 +46,8 @@ LINKS = [
      "url": "https://github.com/Hammerspoon/hammerspoon/blob/master/SPOONS.md"},
     {"name": "Official Spoon repository",
      "url": "https://www.hammerspoon.org/Spoons"},
-    {"name": "IRC channel",
-     "url": "irc://irc.libera.chat/#hammerspoon"},
+    {"name": "Discord server",
+     "url": "https://discord.gg/vxchqkRbkR"},
     {"name": "Mailing list",
      "url": "https://groups.google.com/forum/#!forum/hammerspoon/"},
     {"name": "LuaSkin API docs",
@@ -716,7 +716,7 @@ def write_html(output_dir, template_dir, title, source_url_base, data):
     write_templated_output(output_dir, template_dir, title, source_url_base, data, "html")
 
 
-def write_markdown(output_dir, template_dir, source_url_base, title, data):
+def write_markdown(output_dir, template_dir, title, source_url_base, data):
     """Write out a Markdown version of the docs"""
     write_templated_output(output_dir, template_dir, title, source_url_base, data, "md")
 
