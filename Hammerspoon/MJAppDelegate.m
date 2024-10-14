@@ -88,6 +88,7 @@
             }
         }
 
+
         success = [[NSFileManager defaultManager] moveItemAtPath:fileAndPath toPath:dstSpoonFullPath error:&fileError];
         if (!success) {
             NSLog(@"Unable to move %@ to %@: %@", fileAndPath, spoonPath, fileError);
@@ -129,6 +130,18 @@
     return YES;
 }
 
+- (BOOL)application:(NSApplication *)application
+    continueUserActivity:(NSUserActivity *)userActivity
+      restorationHandler:(nonnull void (^)(NSArray<id<NSUserActivityRestoring>> *_Nullable))restorationHandler
+{
+  //NSLog(@"Open URL in NSUserActivityTypeBrowsingWeb");
+  if ([userActivity.activityType isEqualToString:NSUserActivityTypeBrowsingWeb]) {
+    [[NSWorkspace sharedWorkspace] openURL:userActivity.webpageURL];
+    return YES;
+  }
+  return NO;
+}
+
 
 - (void)applicationDidFinishLaunching:(NSNotification *)aNotification {
     BOOL isTesting = NO;
@@ -137,13 +150,15 @@
     if (CGEventSourceKeyState(kCGEventSourceStateCombinedSessionState,0x3A) && CGEventSourceKeyState(kCGEventSourceStateCombinedSessionState,0x37)) {
 
         NSAlert *alert = [[NSAlert alloc] init];
-        [alert addButtonWithTitle:@"Continue"];
-        [alert addButtonWithTitle:@"Delete Preferences"];
+        NSButton *deleteButton = [alert addButtonWithTitle:@"Delete Preferences"];
+        deleteButton.hasDestructiveAction = YES;
+
+        [alert addButtonWithTitle:@"Cancel"];
         [alert setMessageText:@"Do you want to delete the preferences?"];
-        [alert setInformativeText:@"Deleting the preferences will reset all Hammerspoon settings (including everything that uses hs.settings) to their defaults."];
+        [alert setInformativeText:@"Deleting the preferences will reset all Hammerspoon settings (including everything that uses hs.settings) to their defaults. This does not remove anything in ~/.hammerspoon/"];
         [alert setAlertStyle:NSAlertStyleWarning];
 
-        if ([alert runModal] == NSAlertSecondButtonReturn) {
+        if ([alert runModal] == NSAlertFirstButtonReturn) {
 
             // Reset Preferences:
             NSDictionary * allObjects;

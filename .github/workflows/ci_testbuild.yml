@@ -9,64 +9,87 @@ on:
 jobs:
   build:
     name: Build and Test
-    runs-on: macos-13
+    runs-on: macos-14
     permissions:
       contents: read
+      checks: write
+      pull-requests: write
     env:
       IS_CI: 1
 
     steps:
       - uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: 15.0.1
+          xcode-version: 15.4
+
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
         with:
           fetch-depth: 0
 
-      - name: Prepare environment
+      - name: Prepare CI environment
         run: ./scripts/github-ci-pre.sh
 
       - name: Generate and lint docs
         run: ./scripts/github-ci-docs.sh
-      - name: Upload artifacts (docstrings lint annotations)
-        if: always()
-        uses: actions/upload-artifact@v2
-        with:
-          name: annotations.json
-          path: build/annotations.json
 
       - name: Build for testing
         run: ./scripts/github-ci-testbuild.sh
-      - name: Upload artifacts
-        if: always()
-        uses: actions/upload-artifact@v2
-        with:
-          name: build.log
-          path: artifacts/build.log
 
       - name: Run tests
         id: test
         run: ./scripts/github-ci-test.sh
 
-      - name: Upload test coverage
-        uses: codecov/codecov-action@v1
+      - name: Report test results
+        uses: kishikawakatsumi/xcresulttool@v1
         with:
-          verbose: true
+          path: build/TestResults.xcresult
+          upload-bundles: never
         if: always()
+
+      - name: Report test coverage to Codecov
+        if: always()
+        uses: codecov/codecov-action@v4
+        with:
+          verbose: false
+          token: ${{ secrets.CODECOV_TOKEN }}
+          plugin: xcode
+          files: artifacts/coverage.xml
+
+      - name: Upload artifacts (build log)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build.log
+          path: artifacts/build.log
 
       - name: Upload artifacts (test log)
         if: always()
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
           name: test.log
           path: artifacts/test.log
+
       - name: Upload artifacts (test results)
         if: always()
-        uses: actions/upload-artifact@v2
+        uses: actions/upload-artifact@v4
         with:
-          name: test_results
-          path: build/reports/junit.xml
+          name: TestResults.xcresult
+          path: artifacts/TestResults.xcresult
+
+      - name: Upload artifacts (docstrings lint annotations)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: docstrings-lint-annotations.json
+          path: artifacts/annotations.json
+
+      - name: Upload artifacts (coverage)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage.xml
+          path: artifacts/coverage.xml
 
       - name: Send notification (Push)
         if: ${{ always() && github.event_name == 'push' && github.repository == 'hammerspoon/hammerspoon' }}
