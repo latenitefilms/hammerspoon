@@ -1,11 +1,15 @@
 #import "SentryDefines.h"
 #import "SentryProfilingConditionals.h"
+#import "SentrySerializable.h"
 #import "SentrySpanProtocol.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class SentryTracer, SentryId, SentrySpanId, SentryFrame, SentrySpanContext;
-@class LocalMetricsAggregator;
+@class SentryFrame;
+@class SentryId;
+@class SentrySpanContext;
+@class SentrySpanId;
+@class SentryTracer;
 
 #if SENTRY_HAS_UIKIT
 @class SentryFramesTracker;
@@ -85,8 +89,6 @@ SENTRY_NO_INIT
  */
 @property (nullable, nonatomic, strong) NSArray<SentryFrame *> *frames;
 
-- (LocalMetricsAggregator *)getLocalMetricsAggregator;
-
 /**
  * Init a @c SentrySpan with given transaction and context.
  * @param transaction The @c SentryTracer managing the transaction this span is associated with.
@@ -109,7 +111,9 @@ SENTRY_NO_INIT
 #endif // SENTRY_HAS_UIKIT
 ;
 
+#if !SDK_V9
 - (void)setExtraValue:(nullable id)value forKey:(NSString *)key DEPRECATED_ATTRIBUTE;
+#endif // !SDK_V9
 @end
 
 NS_ASSUME_NONNULL_END

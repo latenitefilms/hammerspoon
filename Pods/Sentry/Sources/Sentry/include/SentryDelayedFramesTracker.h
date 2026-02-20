@@ -2,7 +2,7 @@
 
 #if SENTRY_HAS_UIKIT
 
-@class SentryCurrentDateProvider;
+@protocol SentryCurrentDateProvider;
 @class SentryFramesDelayResult;
 
 NS_ASSUME_NONNULL_BEGIN
@@ -19,9 +19,7 @@ SENTRY_NO_INIT
  * @param dateProvider The instance of a date provider.
  */
 - (instancetype)initWithKeepDelayedFramesDuration:(CFTimeInterval)keepDelayedFramesDuration
-                                     dateProvider:(SentryCurrentDateProvider *)dateProvider;
-
-- (void)resetDelayedFramesTimeStamps;
+                                     dateProvider:(id<SentryCurrentDateProvider>)dateProvider;
 
 - (void)recordDelayedFrame:(uint64_t)startSystemTimestamp
     thisFrameSystemTimestamp:(uint64_t)thisFrameSystemTimestamp
@@ -29,6 +27,8 @@ SENTRY_NO_INIT
               actualDuration:(CFTimeInterval)actualDuration;
 
 - (void)setPreviousFrameSystemTimestamp:(uint64_t)previousFrameSystemTimestamp;
+
+- (void)reset;
 
 /**
  * This method returns the duration of all delayed frames between startSystemTimestamp and

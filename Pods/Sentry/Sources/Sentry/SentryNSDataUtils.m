@@ -3,12 +3,16 @@
 #endif
 
 #import "SentryError.h"
+#import "SentryInternalDefines.h"
 #import "SentryNSDataUtils.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-NSData *_Nullable sentry_gzippedWithCompressionLevel(
-    NSData *data, NSInteger compressionLevel, NSError *_Nullable *_Nullable error)
+@implementation SentryNSDataUtils
+
++ (NSData *_Nullable)sentry_gzippedWithData:(NSData *)data
+                           compressionLevel:(NSInteger)compressionLevel
+                                      error:(NSError *_Nullable __autoreleasing *)error
 {
     uInt length = (uInt)[data length];
     if (length == 0) {
@@ -53,21 +57,16 @@ NSData *_Nullable sentry_gzippedWithCompressionLevel(
     return compressedData;
 }
 
+@end
+
 NSData *_Nullable sentry_nullTerminated(NSData *_Nullable data)
 {
     if (data == nil) {
         return nil;
     }
-    NSMutableData *mutable = [NSMutableData dataWithData:data];
+    NSMutableData *mutable = [NSMutableData dataWithData:SENTRY_UNWRAP_NULLABLE(NSData, data)];
     [mutable appendBytes:"\0" length:1];
     return mutable;
-}
-
-NSUInteger
-sentry_crc32ofString(NSString *value)
-{
-    NSData *data = [value dataUsingEncoding:NSUTF8StringEncoding];
-    return crc32(0, data.bytes, (uInt)[data length]);
 }
 
 NS_ASSUME_NONNULL_END

@@ -6,15 +6,12 @@
 #    import "SentryAppStateManager.h"
 #    import "SentryDefines.h"
 #    import "SentryFramesTracker.h"
-#    import "SentryLog.h"
-#    import "SentrySysctl.h"
-#    import <Foundation/Foundation.h>
+#    import "SentryLogC.h"
 #    import <PrivateSentrySDKOnly.h>
-#    import <SentryAppState.h>
 #    import <SentryDependencyContainer.h>
-#    import <SentryDispatchQueueWrapper.h>
+#    import <SentryInternalDefines.h>
 #    import <SentryInternalNotificationNames.h>
-#    import <SentryLog.h>
+#    import <SentryLogC.h>
 #    import <SentrySDK+Private.h>
 #    import <SentrySwift.h>
 #    import <UIKit/UIKit.h>
@@ -28,10 +25,9 @@ static BOOL isActivePrewarm = NO;
  */
 static const NSTimeInterval SENTRY_APP_START_MAX_DURATION = 180.0;
 
-@interface
-SentryAppStartTracker () <SentryFramesTrackerListener>
+@interface SentryAppStartTracker () <SentryFramesTrackerListener>
 
-@property (nonatomic, strong) SentryAppState *previousAppState;
+@property (nonatomic, strong, nullable) SentryAppState *previousAppState;
 @property (nonatomic, strong) SentryDispatchQueueWrapper *dispatchQueue;
 @property (nonatomic, strong) SentryAppStateManager *appStateManager;
 @property (nonatomic, strong) SentryFramesTracker *framesTracker;
@@ -217,21 +213,21 @@ SentryAppStartTracker () <SentryFramesTrackerListener>
                                                    duration:appStartDuration
                                        runtimeInitTimestamp:runtimeInit
                               moduleInitializationTimestamp:sysctl.moduleInitializationTimestamp
-                                          sdkStartTimestamp:SentrySDK.startTimestamp
+                                          sdkStartTimestamp:SentrySDKInternal.startTimestamp
                                 didFinishLaunchingTimestamp:self.didFinishLaunchingTimestamp];
 
-        SentrySDK.appStartMeasurement = appStartMeasurement;
+        SentrySDKInternal.appStartMeasurement = appStartMeasurement;
     };
 
 // With only running this once we know that the process is a new one when the following
 // code is executed.
 // We need to make sure the block runs on each test instead of only once
-#    if defined(TEST) || defined(TESTCI) || defined(DEBUG)
+#    if defined(SENTRY_TEST) || defined(SENTRY_TEST_CI) || defined(DEBUG)
     block();
 #    else
     static dispatch_once_t once;
     [self.dispatchQueue dispatchOnce:&once block:block];
-#    endif // defined(TEST) || defined(TESTCI) || defined(DEBUG)
+#    endif // defined(SENTRY_TEST) || defined(SENTRY_TEST_CI) || defined(DEBUG)
 }
 
 /**
@@ -261,15 +257,17 @@ SentryAppStartTracker () <SentryFramesTrackerListener>
     if (self.previousAppState == nil) {
         return SentryAppStartTypeCold;
     }
-
+    SentryAppState *_Nonnull previousAppState
+        = SENTRY_UNWRAP_NULLABLE(SentryAppState, self.previousAppState);
     SentryAppState *currentAppState = [self.appStateManager buildCurrentAppState];
 
     // If the release name is different we assume it's an app upgrade
-    if (![currentAppState.releaseName isEqualToString:self.previousAppState.releaseName]) {
+    if (![currentAppState.releaseName
+            isEqualToString:SENTRY_UNWRAP_NULLABLE(NSString, previousAppState.releaseName)]) {
         return SentryAppStartTypeCold;
     }
 
-    NSTimeInterval intervalSincePreviousBootTime = [self.previousAppState.systemBootTimestamp
+    NSTimeInterval intervalSincePreviousBootTime = [previousAppState.systemBootTimestamp
         timeIntervalSinceDate:currentAppState.systemBootTimestamp];
 
     // System rebooted, because the previous boot time is in the past.
@@ -316,9 +314,9 @@ SentryAppStartTracker () <SentryFramesTrackerListener>
 
     [self.framesTracker removeListener:self];
 
-#    if defined(TEST) || defined(TESTCI) || defined(DEBUG)
+#    if defined(SENTRY_TEST) || defined(SENTRY_TEST_CI) || defined(DEBUG)
     self.isRunning = NO;
-#    endif // defined(TEST) || defined(TESTCI) || defined(DEBUG)
+#    endif // defined(SENTRY_TEST) || defined(SENTRY_TEST_CI) || defined(DEBUG)
 }
 
 - (void)dealloc

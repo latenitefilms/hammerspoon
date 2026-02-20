@@ -1,7 +1,12 @@
 #import "SentryDefines.h"
 
-@class SentryOptions, SentryCrashWrapper, SentryAppState, SentryFileManager,
-    SentryDispatchQueueWrapper, SentryNSNotificationCenterWrapper;
+@class SentryAppState;
+@class SentryCrashWrapper;
+@class SentryDispatchQueueWrapper;
+@class SentryFileManager;
+@class SentryOptions;
+
+@protocol SentryNSNotificationCenterWrapper;
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -14,7 +19,7 @@ SENTRY_NO_INIT
                    crashWrapper:(SentryCrashWrapper *)crashWrapper
                     fileManager:(SentryFileManager *)fileManager
            dispatchQueueWrapper:(SentryDispatchQueueWrapper *)dispatchQueueWrapper
-      notificationCenterWrapper:(SentryNSNotificationCenterWrapper *)notificationCenterWrapper;
+      notificationCenterWrapper:(id<SentryNSNotificationCenterWrapper>)notificationCenterWrapper;
 
 #if SENTRY_HAS_UIKIT
 
@@ -31,7 +36,7 @@ SENTRY_NO_INIT
  */
 - (SentryAppState *)buildCurrentAppState;
 
-- (SentryAppState *)loadPreviousAppState;
+- (nullable SentryAppState *)loadPreviousAppState;
 
 - (void)storeCurrentAppState;
 

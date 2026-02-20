@@ -110,9 +110,6 @@
 #define SentryCrashField_ImageAddress "image_addr"
 #define SentryCrashField_ImageVmAddress "image_vmaddr"
 #define SentryCrashField_ImageSize "image_size"
-#define SentryCrashField_ImageMajorVersion "major_version"
-#define SentryCrashField_ImageMinorVersion "minor_version"
-#define SentryCrashField_ImageRevisionVersion "revision_version"
 #define SentryCrashField_ImageCrashInfoMessage "crash_info_message"
 #define SentryCrashField_ImageCrashInfoMessage2 "crash_info_message2"
 
@@ -190,8 +187,6 @@
 #define SentryCrashField_CPUArch "cpu_arch"
 #define SentryCrashField_CPUType "cpu_type"
 #define SentryCrashField_CPUSubType "cpu_subtype"
-#define SentryCrashField_BinaryCPUType "binary_cpu_type"
-#define SentryCrashField_BinaryCPUSubType "binary_cpu_subtype"
 #define SentryCrashField_DeviceAppHash "device_app_hash"
 #define SentryCrashField_Executable "CFBundleExecutable"
 #define SentryCrashField_ExecutablePath "CFBundleExecutablePath"

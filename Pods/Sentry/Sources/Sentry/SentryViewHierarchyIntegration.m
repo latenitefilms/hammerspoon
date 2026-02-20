@@ -7,8 +7,9 @@
 #    import "SentryEvent+Private.h"
 #    import "SentryException.h"
 #    import "SentryHub+Private.h"
+#    import "SentryOptions.h"
 #    import "SentrySDK+Private.h"
-#    import "SentryViewHierarchy.h"
+#    import "SentrySwift.h"
 #    if SENTRY_HAS_METRIC_KIT
 #        import "SentryMetricKitIntegration.h"
 #    endif // SENTRY_HAS_METRIC_KIT
@@ -24,11 +25,10 @@ saveViewHierarchy(const char *reportDirectoryPath)
 {
     NSString *reportPath = [[NSString stringWithUTF8String:reportDirectoryPath]
         stringByAppendingPathComponent:@"view-hierarchy.json"];
-    [SentryDependencyContainer.sharedInstance.viewHierarchy saveViewHierarchy:reportPath];
+    [SentryDependencyContainer.sharedInstance.viewHierarchyProvider saveViewHierarchy:reportPath];
 }
 
-@interface
-SentryViewHierarchyIntegration ()
+@interface SentryViewHierarchyIntegration ()
 
 @property (nonatomic, strong) SentryOptions *options;
 
@@ -44,12 +44,12 @@ SentryViewHierarchyIntegration ()
 
     self.options = options;
 
-    SentryClient *client = [SentrySDK.currentHub getClient];
+    SentryClient *client = [SentrySDKInternal.currentHub getClient];
     [client addAttachmentProcessor:self];
 
     sentrycrash_setSaveViewHierarchy(&saveViewHierarchy);
 
-    SentryDependencyContainer.sharedInstance.viewHierarchy.reportAccessibilityIdentifier
+    SentryDependencyContainer.sharedInstance.viewHierarchyProvider.reportAccessibilityIdentifier
         = options.reportAccessibilityIdentifier;
     return YES;
 }
@@ -63,16 +63,17 @@ SentryViewHierarchyIntegration ()
 {
     sentrycrash_setSaveViewHierarchy(NULL);
 
-    SentryClient *client = [SentrySDK.currentHub getClient];
+    SentryClient *client = [SentrySDKInternal.currentHub getClient];
     [client removeAttachmentProcessor:self];
 }
 
-- (NSArray<SentryAttachment *> *)processAttachments:(NSArray<SentryAttachment *> *)attachments
-                                           forEvent:(nonnull SentryEvent *)event
+- (nonnull NSArray<SentryAttachment *> *)processAttachments:
+                                             (nonnull NSArray<SentryAttachment *> *)attachments
+                                                   forEvent:(nonnull SentryEvent *)event
 {
     // We don't attach the view hierarchy if there is no exception/error.
     // We don't attach the view hierarchy if the event is a crash or metric kit event.
-    if ((event.exceptions == nil && event.error == nil) || event.isCrashEvent
+    if ((event.exceptions == nil && event.error == nil) || event.isFatalEvent
 #    if SENTRY_HAS_METRIC_KIT
         || [event isMetricKitEvent]
 #    endif // SENTRY_HAS_METRIC_KIT
@@ -93,8 +94,8 @@ SentryViewHierarchyIntegration ()
 
     NSMutableArray<SentryAttachment *> *result = [NSMutableArray arrayWithArray:attachments];
 
-    NSData *viewHierarchy =
-        [SentryDependencyContainer.sharedInstance.viewHierarchy appViewHierarchyFromMainThread];
+    NSData *viewHierarchy = [SentryDependencyContainer.sharedInstance
+            .viewHierarchyProvider appViewHierarchyFromMainThread];
 
     SentryAttachment *attachment =
         [[SentryAttachment alloc] initWithData:viewHierarchy

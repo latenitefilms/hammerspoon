@@ -1,16 +1,29 @@
-#import "SentryDefines.h"
-#import "SentrySampleDecision.h"
-#import "SentrySerializable.h"
-#import "SentrySpanStatus.h"
+#if __has_include(<Sentry/Sentry.h>)
+#    import <Sentry/SentryDefines.h>
+#elif __has_include(<SentryWithoutUIKit/Sentry.h>)
+#    import <SentryWithoutUIKit/SentryDefines.h>
+#else
+#    import <SentryDefines.h>
+#endif
+#import SENTRY_HEADER(SentrySampleDecision)
+#if !SDK_V9
+#    import SENTRY_HEADER(SentrySerializable)
+#endif
+#import SENTRY_HEADER(SentrySpanStatus)
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class SentryId, SentrySpanId;
+@class SentryId;
+@class SentrySpanId;
 
 static NSString const *SENTRY_TRACE_TYPE = @"trace";
 
 NS_SWIFT_NAME(SpanContext)
-@interface SentrySpanContext : NSObject <SentrySerializable>
+@interface SentrySpanContext : NSObject
+#if !SDK_V9
+                               <SentrySerializable>
+#endif
+
 SENTRY_NO_INIT
 
 /**

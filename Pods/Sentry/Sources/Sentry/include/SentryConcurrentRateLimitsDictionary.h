@@ -1,5 +1,4 @@
 #import "SentryDataCategory.h"
-#import <Foundation/Foundation.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -14,7 +13,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)addRateLimit:(SentryDataCategory)category validUntil:(NSDate *)date;
 
 /** Returns the date until the rate limit is active. */
-- (NSDate *)getRateLimitForCategory:(SentryDataCategory)category;
+- (nullable NSDate *)getRateLimitForCategory:(SentryDataCategory)category;
 
 @end
 

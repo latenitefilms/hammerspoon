@@ -1,6 +1,14 @@
 #import <Foundation/Foundation.h>
-
-#import "SentrySerializable.h"
+#if __has_include(<Sentry/Sentry.h>)
+#    import <Sentry/SentryDefines.h>
+#elif __has_include(<SentryWithoutUIKit/Sentry.h>)
+#    import <SentryWithoutUIKit/SentryDefines.h>
+#else
+#    import <SentryDefines.h>
+#endif
+#if !SDK_V9
+#    import SENTRY_HEADER(SentrySerializable)
+#endif
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -14,7 +22,10 @@ NS_ASSUME_NONNULL_BEGIN
  * @c SentryDebugImage in a future version.
  */
 NS_SWIFT_NAME(DebugMeta)
-@interface SentryDebugMeta : NSObject <SentrySerializable>
+@interface SentryDebugMeta : NSObject
+#if !SDK_V9
+                             <SentrySerializable>
+#endif
 
 /**
  * The UUID of the image. Use @c debugID when using "macho" as the @c type .

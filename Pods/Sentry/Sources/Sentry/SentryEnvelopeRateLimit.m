@@ -1,14 +1,12 @@
 #import "SentryEnvelopeRateLimit.h"
 #import "SentryDataCategoryMapper.h"
-#import "SentryEnvelope.h"
 #import "SentryEnvelopeItemHeader.h"
 #import "SentryRateLimits.h"
-#import <Foundation/Foundation.h>
+#import "SentrySwift.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface
-SentryEnvelopeRateLimit ()
+@interface SentryEnvelopeRateLimit ()
 
 @property (nonatomic, strong) id<SentryRateLimits> rateLimits;
 @property (nonatomic, weak) id<SentryEnvelopeRateLimitDelegate> delegate;

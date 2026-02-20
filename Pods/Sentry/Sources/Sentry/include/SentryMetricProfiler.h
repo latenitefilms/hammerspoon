@@ -4,11 +4,28 @@
 
 #    import "SentryDefines.h"
 #    import "SentryProfilerDefines.h"
-#    import <Foundation/Foundation.h>
 
 @class SentryTransaction;
 
 NS_ASSUME_NONNULL_BEGIN
+
+/**
+ * Return a serialized dictionary of the collected metrics.
+ * @discussion The dictionary will have the following structure:
+ * @code
+ * @"<metric-name>": @{
+ *      @"unit": @"<unit-name>",
+ *      @"values": @[
+ *          @{
+ *              @"timestamp": @"<NSTimeInterval>",
+ *              @"value": @"<numeric-value>"
+ *          },
+ *          // ... more dictionaries like that ...
+ *      ]
+ * }
+ * @endcode
+ */
+SENTRY_EXTERN NSDictionary<NSString *, id> *serializeContinuousProfileMetrics(NSDictionary *state);
 
 /**
  * A profiler that gathers various time-series and event-based metrics on the app process, such as
@@ -46,23 +63,10 @@ SENTRY_NO_INIT
                                     and:(uint64_t)endSystemTime;
 
 /**
- * Return a serialized dictionary of the collected metrics.
- * @discussion The dictionary will have the following structure:
- * @code
- * @"<metric-name>": @{
- *      @"unit": @"<unit-name>",
- *      @"values": @[
- *          @{
- *              @"timestamp": @"<NSTimeInterval>",
- *              @"value": @"<numeric-value>"
- *          },
- *          // ... more dictionaries like that ...
- *      ]
- * }
- * @endcode
+ * Copy the data structures in a thread safe way so they can be used later to serialize into a
+ * payload for transmission.
  */
-- (NSMutableDictionary<NSString *, SentrySerializedMetricEntry *> *)
-    serializeContinuousProfileMetrics;
+- (NSDictionary *)copyMetricProfilerData;
 
 @end
 

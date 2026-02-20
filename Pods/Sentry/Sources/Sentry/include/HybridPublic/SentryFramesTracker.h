@@ -1,13 +1,21 @@
-#import "SentryDefines.h"
+#if __has_include(<Sentry/SentryDefines.h>)
+#    import <Sentry/SentryDefines.h>
+#else
+#    import "SentryDefines.h"
+#endif
 
 #if SENTRY_HAS_UIKIT
 
-#    import "SentryProfilingConditionals.h"
+#    if __has_include(<Sentry/SentryProfilingConditionals.h>)
+#        import <Sentry/SentryProfilingConditionals.h>
+#    else
+#        import "SentryProfilingConditionals.h"
+#    endif
 
 @class SentryDisplayLinkWrapper;
-@class SentryCurrentDateProvider;
+@protocol SentryCurrentDateProvider;
 @class SentryDispatchQueueWrapper;
-@class SentryNSNotificationCenterWrapper;
+@protocol SentryNSNotificationCenterWrapper;
 @class SentryScreenFrames;
 @class SentryFramesDelayResult;
 
@@ -33,9 +41,9 @@ NS_ASSUME_NONNULL_BEGIN
 @interface SentryFramesTracker : NSObject
 
 - (instancetype)initWithDisplayLinkWrapper:(SentryDisplayLinkWrapper *)displayLinkWrapper
-                              dateProvider:(SentryCurrentDateProvider *)dateProvider
+                              dateProvider:(id<SentryCurrentDateProvider>)dateProvider
                       dispatchQueueWrapper:(SentryDispatchQueueWrapper *)dispatchQueueWrapper
-                        notificationCenter:(SentryNSNotificationCenterWrapper *)notificationCenter
+                        notificationCenter:(id<SentryNSNotificationCenterWrapper>)notificationCenter
                  keepDelayedFramesDuration:(CFTimeInterval)keepDelayedFramesDuration;
 
 - (SentryScreenFrames *)currentFrames;

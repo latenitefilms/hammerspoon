@@ -2,13 +2,17 @@
 
 #if SENTRY_HAS_UIKIT
 
-#    import "SentryObjCRuntimeWrapper.h"
 #    import <UIKit/UIKit.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class SentryOptions, SentryDispatchQueueWrapper, SentrySubClassFinder, SentryNSProcessInfoWrapper,
-    SentryBinaryImageCache;
+@protocol SentryObjCRuntimeWrapper;
+@protocol SentryProcessInfoSource;
+
+@class SentryBinaryImageCache;
+@class SentryDispatchQueueWrapper;
+@class SentryOptions;
+@class SentrySubClassFinder;
 
 /**
  * This is a protocol to define which properties and methods the swizzler required from
@@ -31,7 +35,7 @@ SENTRY_NO_INIT
                   dispatchQueue:(SentryDispatchQueueWrapper *)dispatchQueue
              objcRuntimeWrapper:(id<SentryObjCRuntimeWrapper>)objcRuntimeWrapper
                  subClassFinder:(SentrySubClassFinder *)subClassFinder
-             processInfoWrapper:(SentryNSProcessInfoWrapper *)processInfoWrapper
+             processInfoWrapper:(id<SentryProcessInfoSource>)processInfoWrapper
                binaryImageCache:(SentryBinaryImageCache *)binaryImageCache;
 
 - (void)start;

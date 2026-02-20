@@ -2,11 +2,11 @@
 
 #import "SentryDsn.h"
 #import "SentryError.h"
+#import "SentryInternalDefines.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface
-SentryDsn ()
+@interface SentryDsn ()
 
 @end
 
@@ -20,10 +20,11 @@ SentryDsn ()
 {
     self = [super init];
     if (self) {
-        _url = [self convertDsnString:dsnString didFailWithError:error];
-        if (_url == nil) {
+        NSURL *_Nullable nullableUrl = [self convertDsnString:dsnString didFailWithError:error];
+        if (nullableUrl == nil) {
             return nil;
         }
+        _url = SENTRY_UNWRAP_NULLABLE(NSURL, nullableUrl);
     }
     return self;
 }
@@ -40,6 +41,7 @@ SentryDsn ()
     return output;
 }
 
+#if !SDK_V9
 - (NSURL *)getStoreEndpoint
 {
     if (nil == _storeEndpoint) {
@@ -51,6 +53,7 @@ SentryDsn ()
     }
     return _storeEndpoint;
 }
+#endif // !SDK_V9
 
 - (NSURL *)getEnvelopeEndpoint
 {
@@ -79,7 +82,7 @@ SentryDsn ()
         [paths removeObjectAtIndex:0]; // We remove the leading /
         [paths removeLastObject]; // We remove projectId since we add it later
         path = [NSString stringWithFormat:@"/%@",
-                         [paths componentsJoinedByString:@"/"]]; // We put together the path
+            [paths componentsJoinedByString:@"/"]]; // We put together the path
     }
     NSURLComponents *components = [NSURLComponents new];
     components.scheme = url.scheme;
@@ -97,23 +100,23 @@ SentryDsn ()
     NSSet *allowedSchemes = [NSSet setWithObjects:@"http", @"https", nil];
     NSURL *url = [NSURL URLWithString:trimmedDsnString];
     NSString *errorMessage = nil;
-    if (nil == url.scheme) {
+    if (url.scheme == nil) {
         errorMessage = @"URL scheme of DSN is missing";
         url = nil;
     }
-    if (![allowedSchemes containsObject:url.scheme]) {
+    if (url != nil && ![allowedSchemes containsObject:SENTRY_UNWRAP_NULLABLE(NSURL, url).scheme]) {
         errorMessage = @"Unrecognized URL scheme in DSN";
         url = nil;
     }
-    if (nil == url.host || url.host.length == 0) {
+    if (url != nil && (nil == url.host || url.host.length == 0)) {
         errorMessage = @"Host component of DSN is missing";
         url = nil;
     }
-    if (nil == url.user) {
+    if (url != nil && url.user == nil) {
         errorMessage = @"User component of DSN is missing";
         url = nil;
     }
-    if (url.pathComponents.count < 2) {
+    if (url != nil && url.pathComponents.count < 2) {
         errorMessage = @"Project ID path component of DSN is missing";
         url = nil;
     }

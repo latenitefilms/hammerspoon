@@ -4,17 +4,16 @@
 
 #    import "SentryDelayedFrame.h"
 #    import "SentryInternalCDefines.h"
-#    import "SentryLog.h"
+#    import "SentryLogC.h"
 #    import "SentrySwift.h"
 #    import "SentryTime.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface
-SentryDelayedFramesTracker ()
+@interface SentryDelayedFramesTracker ()
 
 @property (nonatomic, assign) CFTimeInterval keepDelayedFramesDuration;
-@property (nonatomic, strong, readonly) SentryCurrentDateProvider *dateProvider;
+@property (nonatomic, strong, readonly) id<SentryCurrentDateProvider> dateProvider;
 @property (nonatomic, strong) NSMutableArray<SentryDelayedFrame *> *delayedFrames;
 @property (nonatomic) uint64_t lastDelayedFrameSystemTimestamp;
 @property (nonatomic) uint64_t previousFrameSystemTimestamp;
@@ -24,14 +23,29 @@ SentryDelayedFramesTracker ()
 @implementation SentryDelayedFramesTracker
 
 - (instancetype)initWithKeepDelayedFramesDuration:(CFTimeInterval)keepDelayedFramesDuration
-                                     dateProvider:(SentryCurrentDateProvider *)dateProvider
+                                     dateProvider:(id<SentryCurrentDateProvider>)dateProvider
 {
     if (self = [super init]) {
         _keepDelayedFramesDuration = keepDelayedFramesDuration;
         _dateProvider = dateProvider;
-        [self resetDelayedFramesTimeStamps];
+        _delayedFrames = [NSMutableArray new];
+        [self reset];
     }
     return self;
+}
+
+- (void)reset
+{
+    @synchronized(self.delayedFrames) {
+        _previousFrameSystemTimestamp = 0;
+        SentryDelayedFrame *initialFrame =
+            [[SentryDelayedFrame alloc] initWithStartTimestamp:[self.dateProvider systemTime]
+                                              expectedDuration:0
+                                                actualDuration:0];
+
+        [_delayedFrames removeAllObjects];
+        [_delayedFrames addObject:initialFrame];
+    }
 }
 
 - (void)setPreviousFrameSystemTimestamp:(uint64_t)previousFrameSystemTimestamp
@@ -46,16 +60,6 @@ SentryDelayedFramesTracker ()
     "thread.")
 {
     return _previousFrameSystemTimestamp;
-}
-
-- (void)resetDelayedFramesTimeStamps
-{
-    _delayedFrames = [NSMutableArray array];
-    SentryDelayedFrame *initialFrame =
-        [[SentryDelayedFrame alloc] initWithStartTimestamp:[self.dateProvider systemTime]
-                                          expectedDuration:0
-                                            actualDuration:0];
-    [_delayedFrames addObject:initialFrame];
 }
 
 - (void)recordDelayedFrame:(uint64_t)startSystemTimestamp

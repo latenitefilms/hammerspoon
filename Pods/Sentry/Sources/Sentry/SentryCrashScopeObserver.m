@@ -1,10 +1,11 @@
 #import "SentryLevelMapper.h"
-#import <Foundation/Foundation.h>
+#import "SentrySwift.h"
+#import "SentryUser+Serialize.h"
 #import <SentryBreadcrumb.h>
 #import <SentryCrashJSONCodec.h>
 #import <SentryCrashJSONCodecObjC.h>
 #import <SentryCrashScopeObserver.h>
-#import <SentryLog.h>
+#import <SentryLogC.h>
 #import <SentryNSDataUtils.h>
 #import <SentryScopeSyncC.h>
 #import <SentryUser.h>
@@ -45,6 +46,12 @@
 {
     [self syncScope:context
         syncToSentryCrash:^(const void *bytes) { sentrycrash_scopesync_setContext(bytes); }];
+}
+
+- (void)setTraceContext:(nullable NSDictionary<NSString *, id> *)traceContext
+{
+    [self syncScope:traceContext
+        syncToSentryCrash:^(const void *bytes) { sentrycrash_scopesync_setTraceContext(bytes); }];
 }
 
 - (void)setExtras:(nullable NSDictionary<NSString *, id> *)extras

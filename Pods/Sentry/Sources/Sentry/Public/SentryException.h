@@ -1,14 +1,26 @@
 #import <Foundation/Foundation.h>
-
-#import "SentryDefines.h"
-#import "SentrySerializable.h"
+#if __has_include(<Sentry/Sentry.h>)
+#    import <Sentry/SentryDefines.h>
+#elif __has_include(<SentryWithoutUIKit/Sentry.h>)
+#    import <SentryWithoutUIKit/SentryDefines.h>
+#else
+#    import <SentryDefines.h>
+#endif
+#if !SDK_V9
+#    import SENTRY_HEADER(SentrySerializable)
+#endif
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class SentryStacktrace, SentryMechanism;
+@class SentryMechanism;
+@class SentryStacktrace;
 
 NS_SWIFT_NAME(Exception)
-@interface SentryException : NSObject <SentrySerializable>
+@interface SentryException : NSObject
+#if !SDK_V9
+                             <SentrySerializable>
+#endif
+
 SENTRY_NO_INIT
 
 /**

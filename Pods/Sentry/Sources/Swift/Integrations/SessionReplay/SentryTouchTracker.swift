@@ -1,9 +1,10 @@
 import Foundation
 #if (os(iOS) || os(tvOS)) && !SENTRY_NO_UIKIT
+@_implementationOnly import _SentryPrivate
 import UIKit
 
 @objcMembers
-class SentryTouchTracker: NSObject {
+@_spi(Private) public class SentryTouchTracker: NSObject {
     
     private struct TouchEvent {
         let x: CGFloat
@@ -16,57 +17,116 @@ class SentryTouchTracker: NSObject {
         }
     }
     
-    private class TouchInfo {
+    private final class TouchInfo {
         let id: Int
+        let identifier: ObjectIdentifier
         
         var startEvent: TouchEvent?
         var endEvent: TouchEvent?
         var moveEvents = [TouchEvent]()
         
-        init(id: Int) {
+        init(id: Int, identifier: ObjectIdentifier) {
             self.id = id
+            self.identifier = identifier
         }
     }
     
+    private struct ExtractedTouchData {
+        let identifier: ObjectIdentifier
+        let position: CGPoint
+        let phase: UITouch.Phase
+    }
+    
     /**
-     * Using UITouch as a key because the touch is the same across events
-     * for the same touch. As long we holding the reference no two UITouches
-     * will ever have the same pointer.
+     * Active touches tracked by ObjectIdentifier for O(1) lookup performance.
+     * ObjectIdentifier can collide when UITouch memory is reused.
      */
-    private var trackedTouches = [UITouch: TouchInfo]()
+    private var trackedTouches = [ObjectIdentifier: TouchInfo]()
+    
+    /**
+     * Touches that were replaced in trackedTouches due to ObjectIdentifier collision.
+     * Preserves events when UITouch memory is reused before flushFinishedEvents().
+     */
+    private var orphanedTouches = [TouchInfo]()
+    
+    private let dispatchQueue: SentryDispatchQueueWrapper
     private var touchId = 1
     private let dateProvider: SentryCurrentDateProvider
     private let scale: CGAffineTransform
     
-    init(dateProvider: SentryCurrentDateProvider, scale: Float) {
+    public init(dateProvider: SentryCurrentDateProvider, scale: Float, dispatchQueue: SentryDispatchQueueWrapper) {
         self.dateProvider = dateProvider
         self.scale = CGAffineTransform(scaleX: CGFloat(scale), y: CGFloat(scale))
+        self.dispatchQueue = dispatchQueue
     }
     
-    func trackTouchFrom(event: UIEvent) {
+    public convenience init(dateProvider: SentryCurrentDateProvider, scale: Float) {
+        // SentryTouchTracker has it own dispatch queue instead of using the one
+        // from Dependency container to avoid the bottleneck of sharing the same
+        // queue with the rest of the SDK.
+        self.init(dateProvider: dateProvider, scale: scale, dispatchQueue: SentryDispatchQueueWrapper())
+    }
+    
+    public func trackTouchFrom(event: UIEvent) {
         guard let touches = event.allTouches else { return }
-        for touch in touches {
-            guard touch.phase == .began || touch.phase == .ended || touch.phase == .moved || touch.phase == .cancelled else { continue }
-            let info = trackedTouches[touch] ?? TouchInfo(id: touchId++)
+        let timestamp = event.timestamp
+        
+        // Extract touch data on the main thread before dispatching to background queue
+        // to avoid accessing UIKit objects from a background thread
+        let extractedTouches: [ExtractedTouchData] = touches.compactMap { touch in
+            guard touch.phase == .began || touch.phase == .ended || touch.phase == .moved || touch.phase == .cancelled else { return nil }
             let position = touch.location(in: nil).applying(scale)
-            let newEvent = TouchEvent(x: position.x, y: position.y, timestamp: event.timestamp, phase: touch.phase.toRRWebTouchPhase())
-            
-            switch touch.phase {
-            case .began:
-                info.startEvent = newEvent
-            case .ended, .cancelled:
-                info.endEvent = newEvent
-            case .moved:
-                // If the distance between two points is smaller than 10 points, we don't record the second movement.
-                // iOS event polling is fast and will capture any movement; we don't need this granularity for replay.
-                if let last = info.moveEvents.last, touchesDelta(last.point, position) < 10 { continue }
-                info.moveEvents.append(newEvent)
-                debounceEvents(in: info)
-            default:
-                continue
+            // There is no way to uniquely identify a touch, so we use the ObjectIdentifier of the UITouch instance.
+            // This is not a perfect solution, but it is the best we can do without holding references to UIKit objects.
+            return ExtractedTouchData(identifier: ObjectIdentifier(touch), position: position, phase: touch.phase)
+        }
+        
+        dispatchQueue.dispatchAsync { [self] in
+            for extractedTouch in extractedTouches {
+                processTouchEvent(extractedTouch, timestamp: timestamp)
+            }
+        }
+    }
+    
+    private func processTouchEvent(_ extractedTouch: ExtractedTouchData, timestamp: TimeInterval) {
+        let info: TouchInfo
+        
+        if extractedTouch.phase == .began {
+            // Check for ObjectIdentifier collision - if touch already exists, orphan it
+            if let existingTouch = trackedTouches[extractedTouch.identifier] {
+                orphanedTouches.append(existingTouch)
             }
             
-            trackedTouches[touch] = info
+            // Create new TouchInfo for .began
+            info = TouchInfo(id: touchId++, identifier: extractedTouch.identifier)
+            trackedTouches[extractedTouch.identifier] = info
+        } else {
+            // O(1) dictionary lookup for non-.began phases
+            if let existingInfo = trackedTouches[extractedTouch.identifier] {
+                info = existingInfo
+            } else {
+                // Create new if not found (shouldn't happen, but handle gracefully)
+                info = TouchInfo(id: touchId++, identifier: extractedTouch.identifier)
+                trackedTouches[extractedTouch.identifier] = info
+            }
+        }
+        
+        let position = extractedTouch.position
+        let newEvent = TouchEvent(x: position.x, y: position.y, timestamp: timestamp, phase: extractedTouch.phase.toRRWebTouchPhase())
+        
+        switch extractedTouch.phase {
+        case .began:
+            info.startEvent = newEvent
+        case .ended, .cancelled:
+            info.endEvent = newEvent
+        case .moved:
+            // If the distance between two points is smaller than 10 points, we don't record the second movement.
+            // iOS event polling is fast and will capture any movement; we don't need this granularity for replay.
+            if let last = info.moveEvents.last, touchesDelta(last.point, position) < 10 { return }
+            info.moveEvents.append(newEvent)
+            self.debounceEvents(in: info)
+        default:
+            return
         }
     }
     
@@ -103,9 +163,13 @@ class SentryTouchTracker: NSObject {
 
         return abs(abAngle - bcAngle) < 0.05 || abs(abAngle - (2 * .pi - bcAngle)) < 0.05
     }
-  
+    
     func flushFinishedEvents() {
-        trackedTouches = trackedTouches.filter { $0.value.endEvent == nil }
+        SentrySDKLog.debug("[Session Replay] Flushing finished events")
+        dispatchQueue.dispatchSync { [self] in
+            trackedTouches = trackedTouches.filter { $0.value.endEvent == nil }
+            orphanedTouches = orphanedTouches.filter { $0.endEvent == nil }
+        }
     }
     
     func replayEvents(from: Date, until: Date) -> [SentryRRWebEvent] {
@@ -116,7 +180,13 @@ class SentryTouchTracker: NSObject {
         
         var result = [SentryRRWebEvent]()
         
-        for info in trackedTouches.values {
+        var touches = [TouchInfo]()
+        dispatchQueue.dispatchSync { [self] in
+            // Include both active and orphaned touches to preserve all events
+            touches = Array(trackedTouches.values) + orphanedTouches
+        }
+        
+        for info in touches {
             if let infoStart = info.startEvent, infoStart.timestamp >= startTimeInterval && infoStart.timestamp <= endTimeInterval {
                 result.append(RRWebTouchEvent(timestamp: now.addingTimeInterval(infoStart.timestamp - uptime), touchId: info.id, x: Float(infoStart.x), y: Float(infoStart.y), phase: .start))
             }

@@ -1,11 +1,12 @@
+#import "SentryInternalDefines.h"
 #import <SentryUIEventTracker.h>
 
 #if SENTRY_HAS_UIKIT
 
+#    import "SentrySpanOperation.h"
 #    import "SentrySwizzleWrapper.h"
 #    import <SentryDependencyContainer.h>
-#    import <SentryLog.h>
-#    import <SentrySpanOperations.h>
+#    import <SentryLogC.h>
 #    import <SentryUIEventTrackerMode.h>
 
 NS_ASSUME_NONNULL_BEGIN
@@ -13,19 +14,22 @@ NS_ASSUME_NONNULL_BEGIN
 static NSString *const SentryUIEventTrackerSwizzleSendAction
     = @"SentryUIEventTrackerSwizzleSendAction";
 
-@interface
-SentryUIEventTracker ()
+@interface SentryUIEventTracker ()
 
 @property (nonatomic, strong) id<SentryUIEventTrackerMode> uiEventTrackerMode;
 
 @end
 
-@implementation SentryUIEventTracker
+@implementation SentryUIEventTracker {
+    BOOL _reportAccessibilityIdentifier;
+}
 
 - (instancetype)initWithMode:(id<SentryUIEventTrackerMode>)mode
+    reportAccessibilityIdentifier:(BOOL)report
 {
     if (self = [super init]) {
         self.uiEventTrackerMode = mode;
+        _reportAccessibilityIdentifier = report;
     }
     return self;
 }
@@ -64,17 +68,17 @@ SentryUIEventTracker ()
     // which is unacceptable for a transaction name. Ideally, we should somehow shorten
     // the long name.
 
-    NSString *targetClass = NSStringFromClass([target class]);
+    NSString *targetClass = NSStringFromClass([SENTRY_UNWRAP_NULLABLE_VALUE(Class, target) class]);
     if ([targetClass containsString:@"SwiftUI"]) {
         SENTRY_LOG_DEBUG(@"Won't record transaction for SwiftUI target event.");
         return;
     }
 
     NSString *actionName = [self getTransactionName:action target:targetClass];
-    NSString *operation = [self getOperation:sender];
+    NSString *operation = [self getOperation:SENTRY_UNWRAP_NULLABLE_VALUE(id, sender)];
 
     NSString *accessibilityIdentifier = nil;
-    if ([[sender class] isSubclassOfClass:[UIView class]]) {
+    if (_reportAccessibilityIdentifier && [[sender class] isSubclassOfClass:[UIView class]]) {
         UIView *view = sender;
         accessibilityIdentifier = view.accessibilityIdentifier;
     }
@@ -97,10 +101,10 @@ SentryUIEventTracker ()
         [senderClass isSubclassOfClass:[UIBarButtonItem class]] ||
         [senderClass isSubclassOfClass:[UISegmentedControl class]] ||
         [senderClass isSubclassOfClass:[UIPageControl class]]) {
-        return SentrySpanOperationUIActionClick;
+        return SentrySpanOperationUiActionClick;
     }
 
-    return SentrySpanOperationUIAction;
+    return SentrySpanOperationUiAction;
 }
 
 /**
@@ -129,10 +133,10 @@ SentryUIEventTracker ()
 
 + (BOOL)isUIEventOperation:(NSString *)operation
 {
-    if ([operation isEqualToString:SentrySpanOperationUIAction]) {
+    if ([operation isEqualToString:SentrySpanOperationUiAction]) {
         return YES;
     }
-    if ([operation isEqualToString:SentrySpanOperationUIActionClick]) {
+    if ([operation isEqualToString:SentrySpanOperationUiActionClick]) {
         return YES;
     }
     return NO;

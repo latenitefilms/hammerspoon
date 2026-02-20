@@ -5,6 +5,7 @@
 #    import "SentryInternalDefines.h"
 #    import "SentryOptions.h"
 #    import "SentryScope.h"
+#    import "SentrySwift.h"
 #    import <Foundation/Foundation.h>
 #    import <SentryAttachment.h>
 #    import <SentryDebugMeta.h>
@@ -13,8 +14,7 @@
 #    import <SentryException.h>
 #    import <SentryFormatter.h>
 #    import <SentryFrame.h>
-#    import <SentryInAppLogic.h>
-#    import <SentryLog.h>
+#    import <SentryLogC.h>
 #    import <SentryMechanism.h>
 #    import <SentrySDK+Private.h>
 #    import <SentryStacktrace.h>
@@ -45,8 +45,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 @end
 
-@interface
-SentryMetricKitIntegration ()
+@interface SentryMetricKitIntegration () <SentryMXManagerDelegate>
 
 @property (nonatomic, strong, nullable) SentryMXManager *metricKitManager;
 @property (nonatomic, strong) NSMeasurementFormatter *measurementFormatter;
@@ -100,7 +99,7 @@ SentryMetricKitIntegration ()
 {
     NSString *exceptionValue =
         [NSString stringWithFormat:@"MachException Type:%@ Code:%@ Signal:%@",
-                  diagnostic.exceptionType, diagnostic.exceptionCode, diagnostic.signal];
+            diagnostic.exceptionType, diagnostic.exceptionCode, diagnostic.signal];
 
     SentryMXExceptionParams *params = [[SentryMXExceptionParams alloc] init];
     params.handled = NO;
@@ -135,7 +134,7 @@ SentryMetricKitIntegration ()
 
     NSString *exceptionValue =
         [NSString stringWithFormat:@"MXCPUException totalCPUTime:%@ totalSampledTime:%@",
-                  totalCPUTime, totalSampledTime];
+            totalCPUTime, totalSampledTime];
 
     // Still need to figure out proper exception values and types.
     // This code is currently only there for testing with TestFlight.
@@ -228,7 +227,7 @@ SentryMetricKitIntegration ()
         event.debugMeta = [self extractDebugMetaFromMXCallStacks:callStackTree.callStacks];
 
         // The crash event can be way from the past. We don't want to impact the current session.
-        // Therefore we don't call captureCrashEvent.
+        // Therefore we don't call captureFatalEvent.
         [self captureEvent:event withDiagnosticJSON:diagnosticJSON];
     } else {
         for (SentryMXCallStack *callStack in callStackTree.callStacks) {
@@ -509,7 +508,7 @@ SentryMetricKitIntegration ()
         uint64_t imageAddress = mxFrame.address - mxFrame.offsetIntoBinaryTextSegment;
         debugMeta.imageAddress = sentry_formatHexAddressUInt64(imageAddress);
 
-        debugMetas[debugMeta.debugID] = debugMeta;
+        debugMetas[binaryUUID] = debugMeta;
     }
 
     return [debugMetas allValues];

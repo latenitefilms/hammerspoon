@@ -3,25 +3,24 @@
 #import "SentryBreadcrumbDelegate.h"
 #import "SentryDefines.h"
 #import "SentryDependencyContainer.h"
-#import "SentryLog.h"
-#import "SentryNSNotificationCenterWrapper.h"
+#import "SentryFileManager.h"
+#import "SentryLogC.h"
 #import "SentrySwift.h"
 
 #if TARGET_OS_IOS && SENTRY_HAS_UIKIT
 
 #    import <UIKit/UIKit.h>
 
-@interface
-SentrySystemEventBreadcrumbs ()
+@interface SentrySystemEventBreadcrumbs ()
 @property (nonatomic, weak) id<SentryBreadcrumbDelegate> delegate;
 @property (nonatomic, strong) SentryFileManager *fileManager;
-@property (nonatomic, strong) SentryNSNotificationCenterWrapper *notificationCenterWrapper;
+@property (nonatomic, strong) id<SentryNSNotificationCenterWrapper> notificationCenterWrapper;
 @end
 
 @implementation SentrySystemEventBreadcrumbs
 
 - (instancetype)initWithFileManager:(SentryFileManager *)fileManager
-       andNotificationCenterWrapper:(SentryNSNotificationCenterWrapper *)notificationCenterWrapper
+       andNotificationCenterWrapper:(id<SentryNSNotificationCenterWrapper>)notificationCenterWrapper
 {
     if (self = [super init]) {
         _fileManager = fileManager;
@@ -40,25 +39,34 @@ SentrySystemEventBreadcrumbs ()
 {
     // Remove the observers with the most specific detail possible, see
     // https://developer.apple.com/documentation/foundation/nsnotificationcenter/1413994-removeobserver
-    [self.notificationCenterWrapper removeObserver:self name:UIKeyboardDidShowNotification];
-    [self.notificationCenterWrapper removeObserver:self name:UIKeyboardDidHideNotification];
     [self.notificationCenterWrapper removeObserver:self
-                                              name:UIApplicationUserDidTakeScreenshotNotification];
+                                              name:UIKeyboardDidShowNotification
+                                            object:nil];
     [self.notificationCenterWrapper removeObserver:self
-                                              name:UIDeviceBatteryLevelDidChangeNotification];
+                                              name:UIKeyboardDidHideNotification
+                                            object:nil];
     [self.notificationCenterWrapper removeObserver:self
-                                              name:UIDeviceBatteryStateDidChangeNotification];
+                                              name:UIApplicationUserDidTakeScreenshotNotification
+                                            object:nil];
     [self.notificationCenterWrapper removeObserver:self
-                                              name:UIDeviceOrientationDidChangeNotification];
+                                              name:UIDeviceBatteryLevelDidChangeNotification
+                                            object:nil];
     [self.notificationCenterWrapper removeObserver:self
-                                              name:UIDeviceOrientationDidChangeNotification];
+                                              name:UIDeviceBatteryStateDidChangeNotification
+                                            object:nil];
+    [self.notificationCenterWrapper removeObserver:self
+                                              name:UIDeviceOrientationDidChangeNotification
+                                            object:nil];
+    [self.notificationCenterWrapper removeObserver:self
+                                              name:UIApplicationSignificantTimeChangeNotification
+                                            object:nil];
 }
 
 - (void)dealloc
 {
     // In dealloc it's safe to unsubscribe for all, see
     // https://developer.apple.com/documentation/foundation/nsnotificationcenter/1413994-removeobserver
-    [self.notificationCenterWrapper removeObserver:self];
+    [self.notificationCenterWrapper removeObserver:self name:nil object:nil];
 }
 
 /**
@@ -78,6 +86,7 @@ SentrySystemEventBreadcrumbs ()
     [self initKeyboardVisibilityObserver];
     [self initScreenshotObserver];
     [self initTimezoneObserver];
+    [self initSignificantTimeChangeObserver];
 }
 
 - (void)initBatteryObserver:(UIDevice *)currentDevice
@@ -189,12 +198,14 @@ SentrySystemEventBreadcrumbs ()
     // Posted immediately after the display of the keyboard.
     [self.notificationCenterWrapper addObserver:self
                                        selector:@selector(systemEventTriggered:)
-                                           name:UIKeyboardDidShowNotification];
+                                           name:UIKeyboardDidShowNotification
+                                         object:nil];
 
     // Posted immediately after the dismissal of the keyboard.
     [self.notificationCenterWrapper addObserver:self
                                        selector:@selector(systemEventTriggered:)
-                                           name:UIKeyboardDidHideNotification];
+                                           name:UIKeyboardDidHideNotification
+                                         object:nil];
 }
 
 - (void)systemEventTriggered:(NSNotification *)notification
@@ -211,7 +222,8 @@ SentrySystemEventBreadcrumbs ()
     // it's only about the action, but not the SS itself
     [self.notificationCenterWrapper addObserver:self
                                        selector:@selector(systemEventTriggered:)
-                                           name:UIApplicationUserDidTakeScreenshotNotification];
+                                           name:UIApplicationUserDidTakeScreenshotNotification
+                                         object:nil];
 }
 
 - (void)initTimezoneObserver
@@ -230,7 +242,8 @@ SentrySystemEventBreadcrumbs ()
     // Posted when the timezone of the device changed
     [self.notificationCenterWrapper addObserver:self
                                        selector:@selector(timezoneEventTriggered)
-                                           name:NSSystemTimeZoneDidChangeNotification];
+                                           name:NSSystemTimeZoneDidChangeNotification
+                                         object:nil];
 }
 
 - (void)timezoneEventTriggered
@@ -268,6 +281,35 @@ SentrySystemEventBreadcrumbs ()
 {
     [self.fileManager
         storeTimezoneOffset:SentryDependencyContainer.sharedInstance.dateProvider.timezoneOffset];
+}
+
+- (void)initSignificantTimeChangeObserver
+{
+
+    [self.notificationCenterWrapper addObserver:self
+                                       selector:@selector(significantTimeChangeTriggered:)
+                                           name:UIApplicationSignificantTimeChangeNotification
+                                         object:nil];
+}
+
+/**
+ * The system posts this notification when, for example, there’s a change to a new day (midnight), a
+ * carrier time update, or a change to, or from, daylight savings time. The notification doesn’t
+ * contain a user info dictionary.
+ *
+ * @see
+ * https://developer.apple.com/documentation/uikit/uiapplication/significanttimechangenotification#Discussion
+ */
+- (void)significantTimeChangeTriggered:(NSNotification *)notification
+{
+    SentryBreadcrumb *crumb = [[SentryBreadcrumb alloc] initWithLevel:kSentryLevelInfo
+                                                             category:@"device.event"];
+    crumb.type = @"system";
+
+    // We don't add the timezone here, because we already add it in timezoneEventTriggered.
+    crumb.data = @{ @"action" : @"SIGNIFICANT_TIME_CHANGE" };
+
+    [_delegate addBreadcrumb:crumb];
 }
 
 @end

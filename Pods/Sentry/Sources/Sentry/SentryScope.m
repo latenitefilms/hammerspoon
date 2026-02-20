@@ -1,49 +1,26 @@
 #import "NSMutableDictionary+Sentry.h"
 #import "SentryAttachment+Private.h"
 #import "SentryBreadcrumb.h"
-#import "SentryEnvelopeItemType.h"
-#import "SentryEvent.h"
-#import "SentryGlobalEventProcessor.h"
+#import "SentryDefines.h"
+#import "SentryEvent+Private.h"
+#import "SentryInternalDefines.h"
 #import "SentryLevelMapper.h"
-#import "SentryLog.h"
+#import "SentryLogC.h"
+#import "SentryModels+Serializable.h"
 #import "SentryPropagationContext.h"
 #import "SentryScope+Private.h"
+#import "SentryScope+PrivateSwift.h"
 #import "SentryScopeObserver.h"
-#import "SentrySession.h"
 #import "SentrySpan.h"
+#import "SentrySwift.h"
 #import "SentryTracer.h"
 #import "SentryTransactionContext.h"
+#import "SentryUser+Serialize.h"
 #import "SentryUser.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface
-SentryScope ()
-
-/**
- * Set global tags -> these will be sent with every event
- */
-@property (atomic, strong) NSMutableDictionary<NSString *, NSString *> *tagDictionary;
-
-/**
- * Set global extra -> these will be sent with every event
- */
-@property (atomic, strong) NSMutableDictionary<NSString *, id> *extraDictionary;
-
-/**
- * This distribution of the application.
- */
-@property (atomic, copy) NSString *_Nullable distString;
-
-/**
- * Set the fingerprint of an event to determine the grouping
- */
-@property (atomic, strong) NSMutableArray<NSString *> *fingerprintArray;
-
-/**
- * SentryLevel of the event
- */
-@property (atomic) enum SentryLevel levelEnum;
+@interface SentryScope ()
 
 @property (atomic) NSUInteger maxBreadcrumbs;
 @property (atomic) NSUInteger currentBreadcrumbIndex;
@@ -59,6 +36,8 @@ SentryScope ()
 @implementation SentryScope {
     NSObject *_spanLock;
 }
+
+@synthesize span = _span;
 
 #pragma mark Initializer
 
@@ -98,7 +77,7 @@ SentryScope ()
         [_fingerprintArray addObjectsFromArray:[scope fingerprints]];
         [_attachmentArray addObjectsFromArray:[scope attachments]];
 
-        self.propagationContext = [[SentryPropagationContext alloc] init];
+        self.propagationContext = scope.propagationContext;
         self.maxBreadcrumbs = scope.maxBreadcrumbs;
         self.userObject = scope.userObject.copy;
         self.distString = scope.distString;
@@ -134,8 +113,10 @@ SentryScope ()
 
         _currentBreadcrumbIndex = (_currentBreadcrumbIndex + 1) % _maxBreadcrumbs;
 
+        // Serializing is expensive. Only do it once.
+        NSDictionary<NSString *, id> *serializedBreadcrumb = [crumb serialize];
         for (id<SentryScopeObserver> observer in self.observers) {
-            [observer addSerializedBreadcrumb:[crumb serialize]];
+            [observer addSerializedBreadcrumb:serializedBreadcrumb];
         }
     }
 }
@@ -144,17 +125,41 @@ SentryScope ()
 {
     @synchronized(_spanLock) {
         _span = span;
+
+        for (id<SentryScopeObserver> observer in self.observers) {
+            [observer setTraceContext:[self buildTraceContext:span]];
+        }
     }
 }
 
+- (void)setPropagationContext:(SentryPropagationContext *)propagationContext
+{
+    @synchronized(_propagationContext) {
+        _propagationContext = propagationContext;
+
+        if (self.observers.count > 0) {
+            NSDictionary *traceContext = [self.propagationContext traceContextForEvent];
+            for (id<SentryScopeObserver> observer in self.observers) {
+                [observer setTraceContext:traceContext];
+            }
+        }
+    }
+}
+
+- (nullable id<SentrySpan>)span
+{
+    @synchronized(_spanLock) {
+        return _span;
+    }
+}
+
+#if !SDK_V9
 - (void)useSpan:(SentrySpanCallback)callback
 {
-    id<SentrySpan> localSpan = nil;
-    @synchronized(_spanLock) {
-        localSpan = _span;
-    }
+    id<SentrySpan> localSpan = [self span];
     callback(localSpan);
 }
+#endif // !SDK_V9
 
 - (void)clear
 {
@@ -231,13 +236,20 @@ SentryScope ()
     }
 }
 
+- (nullable NSDictionary<NSString *, id> *)getContextForKey:(NSString *)key
+{
+    @synchronized(_contextDictionary) {
+        return [_contextDictionary objectForKey:key];
+    }
+}
+
 - (void)removeContextForKey:(NSString *)key
 {
     @synchronized(_contextDictionary) {
         [_contextDictionary removeObjectForKey:key];
 
         for (id<SentryScopeObserver> observer in self.observers) {
-            [observer setExtras:_contextDictionary];
+            [observer setContext:_contextDictionary];
         }
     }
 }
@@ -277,7 +289,8 @@ SentryScope ()
         return;
     }
     @synchronized(_extraDictionary) {
-        [_extraDictionary addEntriesFromDictionary:extras];
+        [_extraDictionary
+            addEntriesFromDictionary:SENTRY_UNWRAP_NULLABLE_DICT(NSString *, id, extras)];
 
         for (id<SentryScopeObserver> observer in self.observers) {
             [observer setExtras:_extraDictionary];
@@ -320,7 +333,8 @@ SentryScope ()
         return;
     }
     @synchronized(_tagDictionary) {
-        [_tagDictionary addEntriesFromDictionary:tags];
+        [_tagDictionary
+            addEntriesFromDictionary:SENTRY_UNWRAP_NULLABLE_DICT(NSString *, NSString *, tags)];
 
         for (id<SentryScopeObserver> observer in self.observers) {
             [observer setTags:_tagDictionary];
@@ -369,7 +383,8 @@ SentryScope ()
     @synchronized(_fingerprintArray) {
         [_fingerprintArray removeAllObjects];
         if (fingerprint != nil) {
-            [_fingerprintArray addObjectsFromArray:fingerprint];
+            [_fingerprintArray
+                addObjectsFromArray:SENTRY_UNWRAP_NULLABLE(NSArray<NSString *>, fingerprint)];
         }
 
         for (id<SentryScopeObserver> observer in self.observers) {
@@ -385,7 +400,7 @@ SentryScope ()
     }
 }
 
-- (void)setCurrentScreen:(nullable NSString *)currentScreen
+- (void)setCurrentScreen:(NSString *_Nullable)currentScreen
 {
     _currentScreen = currentScreen;
 
@@ -454,9 +469,23 @@ SentryScope ()
     if (self.extras.count > 0) {
         [serializedData setValue:[self extras] forKey:@"extra"];
     }
-    if (self.context.count > 0) {
-        [serializedData setValue:[self context] forKey:@"context"];
+
+    NSDictionary *traceContext = nil;
+    id<SentrySpan> span = nil;
+
+    if (self.span != nil) {
+        @synchronized(_spanLock) {
+            span = self.span;
+        }
     }
+    traceContext = [self buildTraceContext:span];
+    serializedData[@"traceContext"] = traceContext;
+
+    NSDictionary *context = [self context];
+    if (context.count > 0) {
+        [serializedData setValue:context forKey:@"context"];
+    }
+
     [serializedData setValue:[self.userObject serialize] forKey:@"user"];
     [serializedData setValue:self.distString forKey:@"dist"];
     [serializedData setValue:self.environmentString forKey:@"environment"];
@@ -506,12 +535,20 @@ SentryScope ()
 - (SentryEvent *__nullable)applyToEvent:(SentryEvent *)event
                           maxBreadcrumb:(NSUInteger)maxBreadcrumbs
 {
+    if (event.isFatalEvent) {
+        SENTRY_LOG_WARN(@"Won't apply scope to a crash event. This is not allowed as crash "
+                        @"events are from a previous run of the app and the current scope might "
+                        @"have different data than the scope that was active during the crash.");
+        return event;
+    }
+
     if (event.tags == nil) {
         event.tags = [self tags];
     } else {
         NSMutableDictionary *newTags = [NSMutableDictionary new];
         [newTags addEntriesFromDictionary:[self tags]];
-        [newTags addEntriesFromDictionary:event.tags];
+        [newTags addEntriesFromDictionary:SENTRY_UNWRAP_NULLABLE_DICT(
+                                              NSString *, NSString *, event.tags)];
         event.tags = newTags;
     }
 
@@ -520,7 +557,8 @@ SentryScope ()
     } else {
         NSMutableDictionary *newExtra = [NSMutableDictionary new];
         [newExtra addEntriesFromDictionary:[self extras]];
-        [newExtra addEntriesFromDictionary:event.extra];
+        [newExtra
+            addEntriesFromDictionary:SENTRY_UNWRAP_NULLABLE_DICT(NSString *, id, event.extra)];
         event.extra = newExtra;
     }
 
@@ -560,31 +598,30 @@ SentryScope ()
         event.level = level;
     }
 
-    NSMutableDictionary *newContext = [self context].mutableCopy;
-    if (event.context != nil) {
-        [SentryDictionary mergeEntriesFromDictionary:event.context intoDictionary:newContext];
-    }
+    id<SentrySpan> span;
 
     if (self.span != nil) {
-        id<SentrySpan> span;
         @synchronized(_spanLock) {
             span = self.span;
         }
 
         // Span could be nil as we do the first check outside the synchronize
         if (span != nil) {
-            if (![event.type isEqualToString:SentryEnvelopeItemTypeTransaction] &&
+            if (![event.type isEqualToString:SentryEnvelopeItemTypes.transaction] &&
                 [span isKindOfClass:[SentryTracer class]]) {
                 event.transaction = [[(SentryTracer *)span transactionContext] name];
             }
-            newContext[@"trace"] = [span serialize];
         }
     }
 
-    if (newContext[@"trace"] == nil) {
-        // If this is an error event we need to add the distributed trace context.
-        newContext[@"trace"] = [self.propagationContext traceContextForEvent];
+    NSMutableDictionary *newContext = [self context].mutableCopy;
+    if (event.context != nil) {
+        [SentryDictionary mergeEntriesFromDictionary:SENTRY_UNWRAP_NULLABLE_DICT(
+                                                         NSString *, NSDictionary *, event.context)
+                                      intoDictionary:newContext];
     }
+
+    newContext[@"trace"] = [self buildTraceContext:span];
 
     event.context = newContext;
     return event;
@@ -593,6 +630,20 @@ SentryScope ()
 - (void)addObserver:(id<SentryScopeObserver>)observer
 {
     [self.observers addObject:observer];
+}
+
+- (NSDictionary *)buildTraceContext:(nullable id<SentrySpan>)span
+{
+    if (span != nil) {
+        return [SENTRY_UNWRAP_NULLABLE_VALUE(id<SentrySpan>, span) serialize];
+    } else {
+        return [self.propagationContext traceContextForEvent];
+    }
+}
+
+- (NSString *)propagationContextTraceIdString
+{
+    return [self.propagationContext.traceId sentryIdString];
 }
 
 @end

@@ -1,19 +1,16 @@
 #import "SentrySpotlightTransport.h"
-#import "SentryDispatchQueueWrapper.h"
-#import "SentryEnvelope.h"
 #import "SentryEnvelopeItemHeader.h"
-#import "SentryEnvelopeItemType.h"
-#import "SentryLog.h"
-#import "SentryNSURLRequest.h"
+#import "SentryInternalDefines.h"
+#import "SentryLogC.h"
 #import "SentryNSURLRequestBuilder.h"
 #import "SentryOptions.h"
 #import "SentrySerialization.h"
+#import "SentrySwift.h"
 #import "SentryTransport.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface
-SentrySpotlightTransport ()
+@interface SentrySpotlightTransport ()
 
 @property (nonatomic, strong) id<SentryRequestManager> requestManager;
 @property (nonatomic, strong) SentryNSURLRequestBuilder *requestBuilder;
@@ -55,10 +52,10 @@ SentrySpotlightTransport ()
     // Not removing them leads to an error and events won't get displayed.
     NSMutableArray<SentryEnvelopeItem *> *allowedEnvelopeItems = [NSMutableArray new];
     for (SentryEnvelopeItem *item in envelope.items) {
-        if ([item.header.type isEqualToString:SentryEnvelopeItemTypeEvent]) {
+        if ([item.header.type isEqualToString:SentryEnvelopeItemTypes.event]) {
             [allowedEnvelopeItems addObject:item];
         }
-        if ([item.header.type isEqualToString:SentryEnvelopeItemTypeTransaction]) {
+        if ([item.header.type isEqualToString:SentryEnvelopeItemTypes.transaction]) {
             [allowedEnvelopeItems addObject:item];
         }
     }
@@ -67,12 +64,15 @@ SentrySpotlightTransport ()
                                                                       items:allowedEnvelopeItems];
 
     NSError *requestError = nil;
-    NSURLRequest *request = [self.requestBuilder createEnvelopeRequest:envelopeToSend
-                                                                   url:self.apiURL
-                                                      didFailWithError:&requestError];
+    NSURLRequest *request =
+        [self.requestBuilder createEnvelopeRequest:envelopeToSend
+                                               url:SENTRY_UNWRAP_NULLABLE(NSURL, self.apiURL)
+                                  didFailWithError:&requestError];
 
-    if (requestError) {
-        SENTRY_LOG_ERROR(@"Unable to build envelope request with error %@", requestError);
+    if (nil == request || nil != requestError) {
+        if (nil != requestError) {
+            SENTRY_LOG_ERROR(@"Unable to build envelope request with error %@", requestError);
+        }
         return;
     }
 
@@ -83,6 +83,11 @@ SentrySpotlightTransport ()
                 SENTRY_LOG_ERROR(@"Error while performing request %@", requestError);
             }
         }];
+}
+
+- (void)storeEnvelope:(SentryEnvelope *)envelope
+{
+    [self sendEnvelope:envelope];
 }
 
 - (SentryFlushResult)flush:(NSTimeInterval)timeout
@@ -103,13 +108,13 @@ SentrySpotlightTransport ()
     // Empty on purpose
 }
 
-#if defined(TEST) || defined(TESTCI) || defined(DEBUG)
+#if defined(SENTRY_TEST) || defined(SENTRY_TEST_CI) || defined(DEBUG)
 - (void)setStartFlushCallback:(nonnull void (^)(void))callback
 {
     // Empty on purpose
 }
 
-#endif // defined(TEST) || defined(TESTCI) || defined(DEBUG)
+#endif // defined(SENTRY_TEST) || defined(SENTRY_TEST_CI) || defined(DEBUG)
 
 @end
 

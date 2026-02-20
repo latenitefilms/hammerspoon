@@ -1,14 +1,11 @@
 #import "SentryTransportAdapter.h"
-#import "SentryEnvelope.h"
 #import "SentryEvent.h"
 #import "SentryOptions.h"
-#import "SentryUserFeedback.h"
-#import <Foundation/Foundation.h>
+#import "SentrySwift.h"
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface
-SentryTransportAdapter ()
+@interface SentryTransportAdapter ()
 
 @property (nonatomic, strong) NSArray<id<SentryTransport>> *transports;
 @property (nonatomic, strong) SentryOptions *options;
@@ -54,8 +51,11 @@ SentryTransportAdapter ()
                                                                attachments:attachments];
     [items addObjectsFromArray:additionalEnvelopeItems];
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     SentryEnvelopeHeader *envelopeHeader = [[SentryEnvelopeHeader alloc] initWithId:event.eventId
                                                                        traceContext:traceContext];
+#pragma clang diagnostic pop
     SentryEnvelope *envelope = [[SentryEnvelope alloc] initWithHeader:envelopeHeader items:items];
 
     [self sendEnvelope:envelope];
@@ -70,14 +70,38 @@ SentryTransportAdapter ()
                                                                attachments:attachments];
     [items addObject:[[SentryEnvelopeItem alloc] initWithSession:session]];
 
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
     SentryEnvelopeHeader *envelopeHeader = [[SentryEnvelopeHeader alloc] initWithId:event.eventId
                                                                        traceContext:traceContext];
+#pragma clang diagnostic pop
 
     SentryEnvelope *envelope = [[SentryEnvelope alloc] initWithHeader:envelopeHeader items:items];
 
     [self sendEnvelope:envelope];
 }
 
+- (void)storeEvent:(SentryEvent *)event traceContext:(nullable SentryTraceContext *)traceContext
+{
+    SentryEnvelopeItem *item = [[SentryEnvelopeItem alloc] initWithEvent:event];
+
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    SentryEnvelopeHeader *envelopeHeader = [[SentryEnvelopeHeader alloc] initWithId:event.eventId
+                                                                       traceContext:traceContext];
+#pragma clang diagnostic pop
+
+    SentryEnvelope *envelope = [[SentryEnvelope alloc] initWithHeader:envelopeHeader
+                                                                items:@[ item ]];
+
+    for (id<SentryTransport> transport in self.transports) {
+        [transport storeEnvelope:envelope];
+    }
+}
+
+#if !SDK_V9
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wdeprecated-declarations"
 - (void)sendUserFeedback:(SentryUserFeedback *)userFeedback
 {
     SentryEnvelopeItem *item = [[SentryEnvelopeItem alloc] initWithUserFeedback:userFeedback];
@@ -87,6 +111,8 @@ SentryTransportAdapter ()
                                                            singleItem:item];
     [self sendEnvelope:envelope];
 }
+#    pragma clang diagnostic pop
+#endif // !SDK_V9
 
 - (void)sendEnvelope:(SentryEnvelope *)envelope
 {

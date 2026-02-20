@@ -2,9 +2,9 @@
 #import "SentrySpan.h"
 #import "SentrySpanContext+Private.h"
 #import "SentrySpanId.h"
-#import "SentryTraceOrigins.h"
+#import "SentrySwift.h"
+#import "SentryTraceOrigin.h"
 #import "SentryTracer.h"
-#import <Foundation/Foundation.h>
 #import <SentryBuildAppStartSpans.h>
 
 #if SENTRY_HAS_UIKIT
@@ -26,7 +26,8 @@ sentryBuildAppStartSpan(
 }
 
 NSArray<SentrySpan *> *
-sentryBuildAppStartSpans(SentryTracer *tracer, SentryAppStartMeasurement *appStartMeasurement)
+sentryBuildAppStartSpans(
+    SentryTracer *tracer, SentryAppStartMeasurement *_Nullable appStartMeasurement)
 {
 
     if (appStartMeasurement == nil) {
@@ -54,40 +55,41 @@ sentryBuildAppStartSpans(SentryTracer *tracer, SentryAppStartMeasurement *appSta
     NSDate *appStartEndTimestamp = [appStartMeasurement.appStartTimestamp
         dateByAddingTimeInterval:appStartMeasurement.duration];
 
-    SentrySpan *appStartSpan = sentryBuildAppStartSpan(tracer, tracer.spanId, operation, type);
+    SentrySpan *appStartSpan
+        = (SentrySpan *)sentryBuildAppStartSpan(tracer, tracer.spanId, operation, type);
     [appStartSpan setStartTimestamp:appStartMeasurement.appStartTimestamp];
     [appStartSpan setTimestamp:appStartEndTimestamp];
 
     [appStartSpans addObject:appStartSpan];
 
     if (!appStartMeasurement.isPreWarmed) {
-        SentrySpan *premainSpan
-            = sentryBuildAppStartSpan(tracer, appStartSpan.spanId, operation, @"Pre Runtime Init");
+        SentrySpan *premainSpan = (SentrySpan *)sentryBuildAppStartSpan(
+            tracer, appStartSpan.spanId, operation, @"Pre Runtime Init");
         [premainSpan setStartTimestamp:appStartMeasurement.appStartTimestamp];
         [premainSpan setTimestamp:appStartMeasurement.runtimeInitTimestamp];
         [appStartSpans addObject:premainSpan];
 
-        SentrySpan *runtimeInitSpan = sentryBuildAppStartSpan(
+        SentrySpan *runtimeInitSpan = (SentrySpan *)sentryBuildAppStartSpan(
             tracer, appStartSpan.spanId, operation, @"Runtime Init to Pre Main Initializers");
         [runtimeInitSpan setStartTimestamp:appStartMeasurement.runtimeInitTimestamp];
         [runtimeInitSpan setTimestamp:appStartMeasurement.moduleInitializationTimestamp];
         [appStartSpans addObject:runtimeInitSpan];
     }
 
-    SentrySpan *appInitSpan
-        = sentryBuildAppStartSpan(tracer, appStartSpan.spanId, operation, @"UIKit Init");
+    SentrySpan *appInitSpan = (SentrySpan *)sentryBuildAppStartSpan(
+        tracer, appStartSpan.spanId, operation, @"UIKit Init");
     [appInitSpan setStartTimestamp:appStartMeasurement.moduleInitializationTimestamp];
     [appInitSpan setTimestamp:appStartMeasurement.sdkStartTimestamp];
     [appStartSpans addObject:appInitSpan];
 
-    SentrySpan *didFinishLaunching
-        = sentryBuildAppStartSpan(tracer, appStartSpan.spanId, operation, @"Application Init");
+    SentrySpan *didFinishLaunching = (SentrySpan *)sentryBuildAppStartSpan(
+        tracer, appStartSpan.spanId, operation, @"Application Init");
     [didFinishLaunching setStartTimestamp:appStartMeasurement.sdkStartTimestamp];
     [didFinishLaunching setTimestamp:appStartMeasurement.didFinishLaunchingTimestamp];
     [appStartSpans addObject:didFinishLaunching];
 
-    SentrySpan *frameRenderSpan
-        = sentryBuildAppStartSpan(tracer, appStartSpan.spanId, operation, @"Initial Frame Render");
+    SentrySpan *frameRenderSpan = (SentrySpan *)sentryBuildAppStartSpan(
+        tracer, appStartSpan.spanId, operation, @"Initial Frame Render");
     [frameRenderSpan setStartTimestamp:appStartMeasurement.didFinishLaunchingTimestamp];
     [frameRenderSpan setTimestamp:appStartEndTimestamp];
     [appStartSpans addObject:frameRenderSpan];

@@ -1,10 +1,14 @@
 #import "SentryNSDictionarySanitize.h"
-#import "NSArray+SentrySanitize.h"
+#import "SentryArray.h"
 #import "SentryDateUtils.h"
 
 NSDictionary *_Nullable sentry_sanitize(NSDictionary *_Nullable dictionary)
 {
     if (dictionary == nil) {
+        return nil;
+    }
+
+    if (![[dictionary class] isSubclassOfClass:[NSDictionary class]]) {
         return nil;
     }
 

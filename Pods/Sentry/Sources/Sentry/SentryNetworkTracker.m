@@ -8,7 +8,8 @@
 #import "SentryHttpStatusCodeRange+Private.h"
 #import "SentryHttpStatusCodeRange.h"
 #import "SentryHub+Private.h"
-#import "SentryLog.h"
+#import "SentryInternalCDefines.h"
+#import "SentryLogC.h"
 #import "SentryMechanism.h"
 #import "SentryNoOpSpan.h"
 #import "SentryOptions.h"
@@ -16,17 +17,23 @@
 #import "SentryRequest.h"
 #import "SentrySDK+Private.h"
 #import "SentryScope+Private.h"
+#import "SentryScope+PrivateSwift.h"
 #import "SentrySerialization.h"
+#import "SentrySpanOperation.h"
 #import "SentryStacktrace.h"
 #import "SentrySwift.h"
 #import "SentryThread.h"
 #import "SentryThreadInspector.h"
 #import "SentryTraceContext.h"
 #import "SentryTraceHeader.h"
-#import "SentryTraceOrigins.h"
+#import "SentryTraceOrigin.h"
 #import "SentryTracer.h"
 #import "SentryUser.h"
 #import <objc/runtime.h>
+
+static NSString *const SentryNetworkTrackerThreadSanitizerMessage
+    = @"We accept race conditions for turning flags on and off to avoid acquiring locks, which can "
+      @"significantly slow down many HTTP requests running in parallel.";
 
 /**
  * WARNING: We had issues in the past with this code on older iOS versions. We don't run unit tests
@@ -37,8 +44,7 @@
  * break on specific iOS versions to ensure it works properly when modifying this file. If they
  * could, please add UI tests and run them on older iOS versions.
  */
-@interface
-SentryNetworkTracker ()
+@interface SentryNetworkTracker ()
 
 @property (nonatomic, assign) BOOL isNetworkTrackingEnabled;
 @property (nonatomic, assign) BOOL isNetworkBreadcrumbEnabled;
@@ -68,42 +74,37 @@ SentryNetworkTracker ()
     return self;
 }
 
-- (void)enableNetworkTracking
+- (void)enableNetworkTracking SENTRY_DISABLE_THREAD_SANITIZER(
+    SentryNetworkTrackerThreadSanitizerMessage)
 {
-    @synchronized(self) {
-        _isNetworkTrackingEnabled = YES;
-    }
+    _isNetworkTrackingEnabled = YES;
 }
 
-- (void)enableNetworkBreadcrumbs
+- (void)enableNetworkBreadcrumbs SENTRY_DISABLE_THREAD_SANITIZER(
+    SentryNetworkTrackerThreadSanitizerMessage)
 {
-    @synchronized(self) {
-        _isNetworkBreadcrumbEnabled = YES;
-    }
+    _isNetworkBreadcrumbEnabled = YES;
 }
 
-- (void)enableCaptureFailedRequests
+- (void)enableCaptureFailedRequests SENTRY_DISABLE_THREAD_SANITIZER(
+    SentryNetworkTrackerThreadSanitizerMessage)
 {
-    @synchronized(self) {
-        _isCaptureFailedRequestsEnabled = YES;
-    }
+    _isCaptureFailedRequestsEnabled = YES;
 }
 
-- (void)enableGraphQLOperationTracking
+- (void)enableGraphQLOperationTracking SENTRY_DISABLE_THREAD_SANITIZER(
+    SentryNetworkTrackerThreadSanitizerMessage)
 {
-    @synchronized(self) {
-        _isGraphQLOperationTrackingEnabled = YES;
-    }
+
+    _isGraphQLOperationTrackingEnabled = YES;
 }
 
-- (void)disable
+- (void)disable SENTRY_DISABLE_THREAD_SANITIZER(SentryNetworkTrackerThreadSanitizerMessage)
 {
-    @synchronized(self) {
-        _isNetworkBreadcrumbEnabled = NO;
-        _isNetworkTrackingEnabled = NO;
-        _isCaptureFailedRequestsEnabled = NO;
-        _isGraphQLOperationTrackingEnabled = NO;
-    }
+    _isNetworkBreadcrumbEnabled = NO;
+    _isNetworkTrackingEnabled = NO;
+    _isCaptureFailedRequestsEnabled = NO;
+    _isGraphQLOperationTrackingEnabled = NO;
 }
 
 - (BOOL)isTargetMatch:(NSURL *)URL withTargets:(NSArray *)targets
@@ -132,7 +133,7 @@ SentryNetworkTracker ()
 {
     return sessionTask.currentRequest != nil &&
         [self isTargetMatch:sessionTask.currentRequest.URL
-                withTargets:SentrySDK.options.tracePropagationTargets];
+                withTargets:SentrySDKInternal.options.tracePropagationTargets];
 }
 
 - (void)urlSessionTaskResume:(NSURLSessionTask *)sessionTask
@@ -147,7 +148,7 @@ SentryNetworkTracker ()
         return;
 
     // SDK not enabled no need to continue
-    if (SentrySDK.options == nil) {
+    if (SentrySDKInternal.options == nil) {
         return;
     }
 
@@ -158,7 +159,7 @@ SentryNetworkTracker ()
     }
 
     // Don't measure requests to Sentry's backend
-    NSURL *apiUrl = SentrySDK.options.parsedDsn.url;
+    NSURL *apiUrl = SentrySDKInternal.options.parsedDsn.url;
     if ([url.host isEqualToString:apiUrl.host] && [url.path containsString:apiUrl.path]) {
         return;
     }
@@ -169,17 +170,15 @@ SentryNetworkTracker ()
             OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
 
-    @synchronized(self) {
-        if (!self.isNetworkTrackingEnabled) {
-            [self addTraceWithoutTransactionToTask:sessionTask];
-            return;
-        }
+    if (!self.isNetworkTrackingEnabled) {
+        [self addTraceWithoutTransactionToTask:sessionTask];
+        return;
     }
 
     UrlSanitized *safeUrl = [[UrlSanitized alloc] initWithURL:url];
     @synchronized(sessionTask) {
-        __block id<SentrySpan> span;
-        __block id<SentrySpan> netSpan;
+        __block id<SentrySpan> _Nullable span;
+        __block id<SentrySpan> _Nullable netSpan;
         netSpan = objc_getAssociatedObject(sessionTask, &SENTRY_NETWORK_REQUEST_TRACKER_SPAN);
 
         // The task already has a span. Nothing to do.
@@ -187,29 +186,27 @@ SentryNetworkTracker ()
             return;
         }
 
-        [SentrySDK.currentHub.scope useSpan:^(id<SentrySpan> _Nullable innerSpan) {
-            if (innerSpan != nil) {
-                span = innerSpan;
-                netSpan =
-                    [span startChildWithOperation:SENTRY_NETWORK_REQUEST_OPERATION
-                                      description:[NSString stringWithFormat:@"%@ %@",
-                                                            sessionTask.currentRequest.HTTPMethod,
-                                                            safeUrl.sanitizedUrl]];
-                netSpan.origin = SentryTraceOriginAutoHttpNSURLSession;
+        id<SentrySpan> _Nullable currentSpan = [SentrySDKInternal.currentHub.scope span];
+        if (currentSpan != nil) {
+            span = currentSpan;
+            netSpan = [span startChildWithOperation:SentrySpanOperationNetworkRequestOperation
+                                        description:[NSString stringWithFormat:@"%@ %@",
+                                                        sessionTask.currentRequest.HTTPMethod,
+                                                        safeUrl.sanitizedUrl]];
+            netSpan.origin = SentryTraceOriginAutoHttpNSURLSession;
 
-                [netSpan setDataValue:sessionTask.currentRequest.HTTPMethod
-                               forKey:@"http.request.method"];
-                [netSpan setDataValue:safeUrl.sanitizedUrl forKey:@"url"];
-                [netSpan setDataValue:@"fetch" forKey:@"type"];
+            [netSpan setDataValue:sessionTask.currentRequest.HTTPMethod
+                           forKey:@"http.request.method"];
+            [netSpan setDataValue:safeUrl.sanitizedUrl forKey:@"url"];
+            [netSpan setDataValue:@"fetch" forKey:@"type"];
 
-                if (safeUrl.queryItems && safeUrl.queryItems.count > 0) {
-                    [netSpan setDataValue:safeUrl.query forKey:@"http.query"];
-                }
-                if (safeUrl.fragment != nil) {
-                    [netSpan setDataValue:safeUrl.fragment forKey:@"http.fragment"];
-                }
+            if (safeUrl.queryItems && safeUrl.queryItems.count > 0) {
+                [netSpan setDataValue:safeUrl.query forKey:@"http.query"];
             }
-        }];
+            if (safeUrl.fragment != nil) {
+                [netSpan setDataValue:safeUrl.fragment forKey:@"http.fragment"];
+            }
+        }
 
         // We only create a span if there is a transaction in the scope,
         // otherwise we have nothing else to do here.
@@ -233,15 +230,24 @@ SentryNetworkTracker ()
 
 - (void)addTraceWithoutTransactionToTask:(NSURLSessionTask *)sessionTask
 {
-    SentryPropagationContext *propagationContext = SentrySDK.currentHub.scope.propagationContext;
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    SentryPropagationContext *propagationContext
+        = SentrySDKInternal.currentHub.scope.propagationContext;
+
+#if !SDK_V9
+    NSString *segment = nil;
+#    pragma clang diagnostic push
+#    pragma clang diagnostic ignored "-Wdeprecated-declarations"
+    segment = SentrySDKInternal.currentHub.scope.userObject.segment;
+#    pragma clang diagnostic pop
+#endif
+
     SentryTraceContext *traceContext =
         [[SentryTraceContext alloc] initWithTraceId:propagationContext.traceId
-                                            options:SentrySDK.currentHub.client.options
-                                        userSegment:SentrySDK.currentHub.scope.userObject.segment
-                                           replayId:SentrySDK.currentHub.scope.replayId];
-#pragma clang diagnostic pop
+                                            options:SentrySDKInternal.currentHub.client.options
+#if !SDK_V9
+                                        userSegment:segment
+#endif
+                                           replayId:SentrySDKInternal.currentHub.scope.replayId];
 
     [self addBaggageHeader:[traceContext toBaggage]
                traceHeader:[propagationContext traceHeader]
@@ -327,7 +333,7 @@ SentryNetworkTracker ()
     }
 
     // Don't measure requests to Sentry's backend
-    NSURL *apiUrl = SentrySDK.options.parsedDsn.url;
+    NSURL *apiUrl = SentrySDKInternal.options.parsedDsn.url;
     if ([url.host isEqualToString:apiUrl.host] && [url.path containsString:apiUrl.path]) {
         return;
     }
@@ -367,12 +373,10 @@ SentryNetworkTracker ()
 
 - (void)captureFailedRequests:(NSURLSessionTask *)sessionTask
 {
-    @synchronized(self) {
-        if (!self.isCaptureFailedRequestsEnabled) {
-            SENTRY_LOG_DEBUG(
-                @"captureFailedRequestsEnabled is disabled, not capturing HTTP Client errors.");
-            return;
-        }
+    if (!self.isCaptureFailedRequestsEnabled) {
+        SENTRY_LOG_DEBUG(
+            @"captureFailedRequestsEnabled is disabled, not capturing HTTP Client errors.");
+        return;
     }
 
     // if request or response are null, we can't raise the event
@@ -397,7 +401,8 @@ SentryNetworkTracker ()
         return;
     }
 
-    if (![self isTargetMatch:myRequest.URL withTargets:SentrySDK.options.failedRequestTargets]) {
+    if (![self isTargetMatch:myRequest.URL
+                 withTargets:SentrySDKInternal.options.failedRequestTargets]) {
         SENTRY_LOG_DEBUG(
             @"Request url isn't within the request targets, not capturing HTTP Client errors.");
         return;
@@ -408,7 +413,7 @@ SentryNetworkTracker ()
 
     SentryEvent *event = [[SentryEvent alloc] initWithLevel:kSentryLevelError];
 
-    SentryThreadInspector *threadInspector = SentrySDK.currentHub.getClient.threadInspector;
+    SentryThreadInspector *threadInspector = SentrySDKInternal.currentHub.getClient.threadInspector;
     NSArray<SentryThread *> *threads = [threadInspector getCurrentThreads];
 
     // sessionTask.error isn't used because it's not about network errors but rather
@@ -462,8 +467,10 @@ SentryNetworkTracker ()
     context[@"response"] = response;
 
     if (self.isGraphQLOperationTrackingEnabled) {
-        context[@"graphql_operation_name"] =
-            [URLSessionTaskHelper getGraphQLOperationNameFrom:sessionTask];
+        NSString *operationName = [URLSessionTaskHelper getGraphQLOperationNameFrom:sessionTask];
+        if (operationName != nil) {
+            context[@"graphql"] = @{ @"operation_name" : operationName };
+        }
     }
 
     event.context = context;
@@ -473,7 +480,7 @@ SentryNetworkTracker ()
 
 - (BOOL)containsStatusCode:(NSInteger)statusCode
 {
-    for (SentryHttpStatusCodeRange *range in SentrySDK.options.failedRequestStatusCodes) {
+    for (SentryHttpStatusCodeRange *range in SentrySDKInternal.options.failedRequestStatusCodes) {
         if ([range isInRange:statusCode]) {
             return YES;
         }
@@ -497,7 +504,10 @@ SentryNetworkTracker ()
     NSDate *requestStart
         = objc_getAssociatedObject(sessionTask, &SENTRY_NETWORK_REQUEST_START_DATE);
 
-    SentryLevel breadcrumbLevel = sessionTask.error != nil ? kSentryLevelError : kSentryLevelInfo;
+    NSInteger responseStatusCode = [self urlResponseStatusCode:sessionTask.response];
+    SentryLevel breadcrumbLevel = [self getBreadcrumbLevel:sessionTask
+                                        responseStatusCode:responseStatusCode];
+
     SentryBreadcrumb *breadcrumb = [[SentryBreadcrumb alloc] initWithLevel:breadcrumbLevel
                                                                   category:@"http"];
 
@@ -512,7 +522,7 @@ SentryNetworkTracker ()
         [NSNumber numberWithLongLong:sessionTask.countOfBytesSent];
     breadcrumbData[@"response_body_size"] =
         [NSNumber numberWithLongLong:sessionTask.countOfBytesReceived];
-    NSInteger responseStatusCode = [self urlResponseStatusCode:sessionTask.response];
+
     if (responseStatusCode != -1) {
         NSNumber *statusCode = [NSNumber numberWithInteger:responseStatusCode];
         breadcrumbData[@"status_code"] = statusCode;
@@ -604,6 +614,23 @@ SentryNetworkTracker ()
         return kSentrySpanStatusDeadlineExceeded;
     }
     return kSentrySpanStatusUndefined;
+}
+
+- (SentryLevel)getBreadcrumbLevel:(NSURLSessionTask *)sessionTask
+               responseStatusCode:(NSInteger)responseStatusCode
+{
+    SentryLevel breadcrumbLevel = kSentryLevelInfo;
+    if (responseStatusCode >= 400 && responseStatusCode < 500) {
+        breadcrumbLevel = kSentryLevelWarning;
+    } else if (responseStatusCode >= 500 && responseStatusCode < 600) {
+        breadcrumbLevel = kSentryLevelError;
+    }
+
+    if (sessionTask.error != nil) {
+        breadcrumbLevel = kSentryLevelError;
+    }
+
+    return breadcrumbLevel;
 }
 
 @end

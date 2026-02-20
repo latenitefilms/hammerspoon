@@ -1,15 +1,33 @@
 #import <Foundation/Foundation.h>
-
-#import "SentryDefines.h"
-#import "SentrySerializable.h"
+#if __has_include(<Sentry/Sentry.h>)
+#    import <Sentry/SentryDefines.h>
+#elif __has_include(<SentryWithoutUIKit/Sentry.h>)
+#    import <SentryWithoutUIKit/SentryDefines.h>
+#else
+#    import <SentryDefines.h>
+#endif
+#if !SDK_V9
+#    import SENTRY_HEADER(SentrySerializable)
+#endif // !SDK_V9
 
 NS_ASSUME_NONNULL_BEGIN
 
-@class SentryThread, SentryException, SentryStacktrace, SentryUser, SentryDebugMeta, SentryContext,
-    SentryBreadcrumb, SentryId, SentryMessage, SentryRequest;
+@class SentryBreadcrumb;
+@class SentryContext;
+@class SentryDebugMeta;
+@class SentryException;
+@class SentryId;
+@class SentryMessage;
+@class SentryRequest;
+@class SentryStacktrace;
+@class SentryThread;
+@class SentryUser;
 
 NS_SWIFT_NAME(Event)
-@interface SentryEvent : NSObject <SentrySerializable>
+@interface SentryEvent : NSObject
+#if !SDK_V9
+                         <SentrySerializable>
+#endif // !SDK_V9
 
 /**
  * This will be set by the initializer.
@@ -168,7 +186,7 @@ NS_SWIFT_NAME(Event)
 /**
  * Init an @c SentryEvent will set all needed fields by default.
  */
-- (instancetype)init;
+- (instancetype)init NS_DESIGNATED_INITIALIZER;
 
 /**
  * Init a @c SentryEvent with a @c SentryLevelError and set all needed fields by default.
